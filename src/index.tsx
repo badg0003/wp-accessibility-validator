@@ -2,6 +2,7 @@
  * External dependencies
  */
 import axe from 'axe-core';
+import type { RunOptions } from 'axe-core';
 import './style.scss';
 import universalAccessIcon from './icons/universal-access-icon';
 
@@ -57,6 +58,60 @@ const STORAGE_PREFIX = 'wpav-scan-';
 const SCAN_NOTICE_ID = 'wpav-scan-status';
 const PANEL_NAME = 'wp-accessibility-validator-panel';
 const PANEL_STORE_ID = `plugin-document-setting-panel/${PANEL_NAME}`;
+const DEFAULT_WCAG_TAGS = [
+  'wcag2a',
+  'wcag2aa',
+  'wcag2aaa',
+  'wcag21a',
+  'wcag21aa',
+  'wcag22aa',
+];
+
+const getAvailableWcagLabels = (): Record<string, string> => {
+  if (typeof window === 'undefined') {
+    return {};
+  }
+
+  return window.wpavSettings?.availableWcagTags ?? {};
+};
+
+const resolveDefaultWcagTags = (): string[] => {
+  if (typeof window === 'undefined') {
+    return DEFAULT_WCAG_TAGS;
+  }
+
+  const defaults = window.wpavSettings?.defaultWcagTags;
+
+  if (Array.isArray(defaults) && defaults.length > 0) {
+    return defaults;
+  }
+
+  const labels = getAvailableWcagLabels();
+  const labelKeys = Object.keys(labels);
+
+  return labelKeys.length > 0 ? labelKeys : DEFAULT_WCAG_TAGS;
+};
+
+const getConfiguredWcagTags = (): string[] => {
+  if (typeof window === 'undefined') {
+    return DEFAULT_WCAG_TAGS;
+  }
+
+  const tags = window.wpavSettings?.wcagTags;
+
+  if (Array.isArray(tags) && tags.length > 0) {
+    return tags.filter((tag): tag is string => typeof tag === 'string');
+  }
+
+  return resolveDefaultWcagTags();
+};
+
+const formatWcagLabelList = (
+  tags: string[],
+  labels: Record<string, string>
+): string => {
+  return tags.map((tag) => labels[tag] ?? tag).join(', ');
+};
 
 const getStorageKey = (postId?: number | null) =>
   typeof postId === 'number' ? `${STORAGE_PREFIX}${postId}` : null;
@@ -155,6 +210,17 @@ async function runClientSideScan(): Promise<ScanMetrics> {
   let scannedBlocks = 0;
   let skippedBlocks = 0;
   const errors: string[] = [];
+  const wcagTags = getConfiguredWcagTags();
+  const runOptions: RunOptions = {
+    resultTypes: ['violations'],
+  };
+
+  if (wcagTags.length > 0) {
+    runOptions.runOnly = {
+      type: 'tag',
+      values: wcagTags,
+    };
+  }
 
   for (const block of blocks) {
     const renderedHtml = serialize([block]);
@@ -184,9 +250,7 @@ async function runClientSideScan(): Promise<ScanMetrics> {
     try {
       scannedBlocks++;
       // Run the scan on the off-screen element.
-      const axeResults = await axe.run(temporaryElement, {
-        resultTypes: ['violations'], // Optimization: only ask for what we need.
-      });
+      const axeResults = await axe.run(temporaryElement, runOptions);
 
       if (axeResults.violations.length > 0) {
         const violationsWithContext = axeResults.violations.map(
@@ -220,6 +284,12 @@ async function runClientSideScan(): Promise<ScanMetrics> {
 }
 
 const AccessibilityCheckerSidebar = () => {
+  const activeWcagTags = useMemo(() => getConfiguredWcagTags(), []);
+  const wcagLabelMap = useMemo(() => getAvailableWcagLabels(), []);
+  const wcagLabelText = useMemo(() => {
+    const text = formatWcagLabelList(activeWcagTags, wcagLabelMap);
+    return text || 'All available WCAG guidelines';
+  }, [activeWcagTags, wcagLabelMap]);
   const { postId, blocks } = useSelect(
     (selectFn) => {
       const editorStore = selectFn('core/editor') as Record<string, any>;
@@ -435,7 +505,13 @@ const AccessibilityCheckerSidebar = () => {
               {runError}
             </Notice>
           )}
-
+        </div>
+        <div className="wpav-panel__filters">
+          <p>
+            <strong>Active WCAG filters:</strong> {wcagLabelText}
+          </p>
+        </div>
+        <div className="wpav-panel__content">
           {scanSummary ? (
             <>
               <div className="wpav-summary">

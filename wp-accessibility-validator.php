@@ -4,7 +4,7 @@
  * Plugin Name:       WP Accessibility Validator
  * Description:       Adds an on-demand accessibility checker to the block editor to validate content against WCAG standards.
  * Version:           1.0.0
- * Author:            Your Name
+ * Author:            Mike Badgley
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       wp-accessibility-validator

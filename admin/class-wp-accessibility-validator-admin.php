@@ -36,6 +36,13 @@ class WP_Accessibility_Validator_Admin {
 	private $version;
 
 	/**
+	 * Cached WCAG options.
+	 *
+	 * @var array<string, string>
+	 */
+	private $wcag_options = array();
+
+	/**
 	 * Initialize the class and set its properties.
 	 *
 	 * @since    1.0.0
@@ -43,8 +50,11 @@ class WP_Accessibility_Validator_Admin {
 	public function __construct() {
 		$this->plugin_name = 'wp-accessibility-validator';
 		$this->version     = WPAV_VERSION;
+		$this->wcag_options = $this->get_wcag_options();
 
 		add_action( 'enqueue_block_editor_assets', array( $this, 'enqueue_scripts' ) );
+		add_action( 'admin_menu', array( $this, 'register_settings_page' ) );
+		add_action( 'admin_init', array( $this, 'register_settings' ) );
 	}
 
 	/**
@@ -61,6 +71,165 @@ class WP_Accessibility_Validator_Admin {
 			$asset_file['dependencies'],
 			$asset_file['version'],
 			true
+		);
+
+		wp_localize_script(
+			$this->plugin_name,
+			'wpavSettings',
+			array(
+				'wcagTags'          => $this->get_selected_wcag_tags(),
+				'availableWcagTags' => $this->wcag_options,
+				'defaultWcagTags'   => array_keys( $this->wcag_options ),
+			)
+		);
+	}
+
+	/**
+	 * Register the plugin settings page.
+	 */
+	public function register_settings_page() {
+		add_options_page(
+			__( 'Accessibility Validator', 'wp-accessibility-validator' ),
+			__( 'Accessibility Validator', 'wp-accessibility-validator' ),
+			'manage_options',
+			'wpav-settings',
+			array( $this, 'render_settings_page' )
+		);
+	}
+
+	/**
+	 * Render the settings page markup.
+	 */
+	public function render_settings_page() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		?>
+		<div class="wrap">
+			<h1><?php esc_html_e( 'Accessibility Validator', 'wp-accessibility-validator' ); ?></h1>
+			<form method="post" action="options.php">
+				<?php
+				settings_fields( 'wpav_settings' );
+				do_settings_sections( 'wpav_settings' );
+				submit_button();
+				?>
+			</form>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Register settings, section, and fields.
+	 */
+	public function register_settings() {
+		register_setting(
+			'wpav_settings',
+			'wpav_wcag_tags',
+			array(
+				'type'              => 'array',
+				'sanitize_callback' => array( $this, 'sanitize_wcag_tags' ),
+				'default'           => array_keys( $this->wcag_options ),
+			)
+		);
+
+		add_settings_section(
+			'wpav_settings_section',
+			__( 'Scan Settings', 'wp-accessibility-validator' ),
+			function () {
+				echo '<p>' . esc_html__( 'Choose which WCAG guidelines should be enforced when running scans.', 'wp-accessibility-validator' ) . '</p>';
+			},
+			'wpav_settings'
+		);
+
+		add_settings_field(
+			'wpav_wcag_tags_field',
+			__( 'WCAG guidelines', 'wp-accessibility-validator' ),
+			array( $this, 'render_wcag_tags_field' ),
+			'wpav_settings',
+			'wpav_settings_section'
+		);
+	}
+
+	/**
+	 * Output checkbox controls for each WCAG tag.
+	 */
+	public function render_wcag_tags_field() {
+		$selected = $this->get_selected_wcag_tags();
+
+		foreach ( $this->wcag_options as $tag => $label ) {
+			printf(
+				'<label style="display:block;margin-bottom:4px;"><input type="checkbox" name="wpav_wcag_tags[]" value="%1$s" %2$s/> %3$s</label>',
+				esc_attr( $tag ),
+				checked( in_array( $tag, $selected, true ), true, false ),
+				esc_html( $label )
+			);
+		}
+	}
+
+	/**
+	 * Sanitize WCAG tags before saving.
+	 *
+	 * @param mixed $value Raw option value.
+	 *
+	 * @return array<string>
+	 */
+	public function sanitize_wcag_tags( $value ) {
+		$allowed = array_keys( $this->wcag_options );
+
+		if ( ! is_array( $value ) ) {
+			return $allowed;
+		}
+
+		$value = array_map(
+			function( $tag ) {
+				return sanitize_key( $tag );
+			},
+			$value
+		);
+
+		$clean = array_values(
+			array_intersect(
+				$allowed,
+				$value
+			)
+		);
+
+		return ! empty( $clean ) ? $clean : $allowed;
+	}
+
+	/**
+	 * Returns stored WCAG tags or defaults.
+	 *
+	 * @return array<string>
+	 */
+	private function get_selected_wcag_tags() {
+		$stored = get_option( 'wpav_wcag_tags' );
+
+		if ( ! is_array( $stored ) || empty( $stored ) ) {
+			return array_keys( $this->wcag_options );
+		}
+
+		return array_values(
+			array_intersect(
+				array_keys( $this->wcag_options ),
+				array_map( 'sanitize_key', $stored )
+			)
+		);
+	}
+
+	/**
+	 * List of WCAG tags that axe supports.
+	 *
+	 * @return array<string, string>
+	 */
+	private function get_wcag_options() {
+		return array(
+			'wcag2a'   => __( 'WCAG 2.0 Level A', 'wp-accessibility-validator' ),
+			'wcag2aa'  => __( 'WCAG 2.0 Level AA', 'wp-accessibility-validator' ),
+			'wcag2aaa' => __( 'WCAG 2.0 Level AAA', 'wp-accessibility-validator' ),
+			'wcag21a'  => __( 'WCAG 2.1 Level A', 'wp-accessibility-validator' ),
+			'wcag21aa' => __( 'WCAG 2.1 Level AA', 'wp-accessibility-validator' ),
+			'wcag22aa' => __( 'WCAG 2.2 Level AA', 'wp-accessibility-validator' ),
 		);
 	}
 }
