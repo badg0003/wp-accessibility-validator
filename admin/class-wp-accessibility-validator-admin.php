@@ -230,6 +230,8 @@ class WP_Accessibility_Validator_Admin {
 			'wcag21a'  => __( 'WCAG 2.1 Level A', 'wp-accessibility-validator' ),
 			'wcag21aa' => __( 'WCAG 2.1 Level AA', 'wp-accessibility-validator' ),
 			'wcag22aa' => __( 'WCAG 2.2 Level AA', 'wp-accessibility-validator' ),
+			'best-practice' => __( 'Best practices (non-WCAG)', 'wp-accessibility-validator' ),
+			'review-item'   => __( 'Manual review items', 'wp-accessibility-validator' ),
 		);
 	}
 }
