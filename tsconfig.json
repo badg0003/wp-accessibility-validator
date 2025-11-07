@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "baseUrl": ".",
+    "esModuleInterop": true,
+    "jsx": "react",
+    "module": "esnext",
+    "moduleResolution": "node",
+    "noImplicitAny": true,
+    "paths": {
+      "@wordpress/*": [
+        "node_modules/@types/wordpress__*"
+      ]
+    },
+    "strict": true,
+    "target": "es2020"
+  },
+  "include": [
+    "src/**/*"
+  ]
+}
