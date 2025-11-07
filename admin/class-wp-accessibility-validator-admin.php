@@ -2,7 +2,7 @@
 /**
  * The admin-specific functionality of the plugin.
  *
- * @link       YOUR_WEBSITE_URL
+ * @link       https://www.digiteam.ca/
  * @since      1.0.0
  *
  * @package    Wp_Accessibility_Validator
