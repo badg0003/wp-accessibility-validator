@@ -14,8 +14,8 @@ import {
   PluginDocumentSettingPanel,
   PluginPostStatusInfo,
   PluginPrePublishPanel,
-} from '@wordpress/edit-post';
-import { dispatch, select, useSelect } from '@wordpress/data';
+} from '@wordpress/editor';
+import { dispatch, registerStore, select, useSelect } from '@wordpress/data';
 import { serialize } from '@wordpress/blocks';
 import {
   Button,
@@ -34,6 +34,8 @@ import {
   useMemo,
   useState,
 } from '@wordpress/element';
+import { createHigherOrderComponent } from '@wordpress/compose';
+import { addFilter } from '@wordpress/hooks';
 
 // Define a custom type for our violation to include the block name.
 interface ViolationWithContext extends axe.Result {
@@ -54,10 +56,15 @@ interface StoredScan extends ScanMetrics {
   completedAt: string;
 }
 
+interface BlockViolationState {
+  blockViolations: Record<string, number>;
+}
+
 const STORAGE_PREFIX = 'wpav-scan-';
 const SCAN_NOTICE_ID = 'wpav-scan-status';
 const PANEL_NAME = 'wp-accessibility-validator-panel';
 const PANEL_STORE_ID = `plugin-document-setting-panel/${PANEL_NAME}`;
+const STORE_NAME = 'wpav/accessibility';
 const DEFAULT_WCAG_TAGS = [
   'wcag2a',
   'wcag2aa',
@@ -115,6 +122,120 @@ const formatWcagLabelList = (
 
 const getStorageKey = (postId?: number | null) =>
   typeof postId === 'number' ? `${STORAGE_PREFIX}${postId}` : null;
+
+const DEFAULT_STORE_STATE: BlockViolationState = {
+  blockViolations: {},
+};
+
+const registerViolationStore = () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const globalScope = window as Window &
+    typeof globalThis & { wpavStoreRegistered?: boolean };
+
+  if (globalScope.wpavStoreRegistered) {
+    return;
+  }
+
+  registerStore(STORE_NAME, {
+    reducer: (
+      state: BlockViolationState = DEFAULT_STORE_STATE,
+      action: { type: string; blockViolations?: Record<string, number> }
+    ) => {
+      switch (action.type) {
+        case 'SET_BLOCK_VIOLATIONS':
+          return {
+            ...state,
+            blockViolations: action.blockViolations || {},
+          };
+        default:
+          return state;
+      }
+    },
+    actions: {
+      setBlockViolations(blockViolations: Record<string, number>) {
+        return {
+          type: 'SET_BLOCK_VIOLATIONS',
+          blockViolations,
+        };
+      },
+    },
+    selectors: {
+      getBlockViolations(state: BlockViolationState) {
+        return state.blockViolations;
+      },
+      hasBlockViolations(state: BlockViolationState, clientId: string) {
+        return Boolean(state.blockViolations?.[clientId]);
+      },
+    },
+  });
+
+  globalScope.wpavStoreRegistered = true;
+};
+
+registerViolationStore();
+
+const applyBlockViolationIndicator = () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const globalScope = window as Window &
+    typeof globalThis & { wpavBlockFilterApplied?: boolean };
+
+  if (globalScope.wpavBlockFilterApplied) {
+    return;
+  }
+
+  const withViolationIndicator = createHigherOrderComponent(
+    (BlockListBlock: any) => {
+      return (props: Record<string, any>) => {
+        const hasViolations = useSelect(
+          (selectFn) => {
+            const store = selectFn(STORE_NAME) as Record<string, any> | undefined;
+            return store?.hasBlockViolations
+              ? store.hasBlockViolations(props.clientId)
+              : false;
+          },
+          [props.clientId]
+        );
+
+        const className = [
+          props.className,
+          hasViolations ? 'wpav-block--has-violations' : null,
+        ]
+          .filter(Boolean)
+          .join(' ');
+
+        const wrapperProps = {
+          ...props.wrapperProps,
+          'data-wpav-block-has-violations': hasViolations ? 'true' : undefined,
+        };
+
+        return (
+          <BlockListBlock
+            {...props}
+            className={className}
+            wrapperProps={wrapperProps}
+          />
+        );
+      };
+    },
+    'withWpavViolationIndicator'
+  );
+
+  addFilter(
+    'editor.BlockListBlock',
+    'wp-accessibility-validator/block-indicator',
+    withViolationIndicator
+  );
+
+  globalScope.wpavBlockFilterApplied = true;
+};
+
+applyBlockViolationIndicator();
 
 const loadStoredScan = (key: string): StoredScan | null => {
   if (typeof window === 'undefined') {
@@ -458,6 +579,27 @@ const AccessibilityCheckerSidebar = () => {
       ...value,
     }));
   }, [scanSummary]);
+
+  const blockViolationTotals = useMemo(() => {
+    if (!scanSummary) {
+      return {};
+    }
+
+    return scanSummary.violations.reduce((acc, violation) => {
+      if (!violation.blockClientId) {
+        return acc;
+      }
+
+      acc[violation.blockClientId] =
+        (acc[violation.blockClientId] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+  }, [scanSummary]);
+
+  useEffect(() => {
+    const storeDispatch = dispatch(STORE_NAME) as Record<string, any> | undefined;
+    storeDispatch?.setBlockViolations?.(blockViolationTotals);
+  }, [blockViolationTotals]);
 
   return (
     <Fragment>

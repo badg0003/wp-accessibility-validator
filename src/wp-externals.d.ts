@@ -20,8 +20,14 @@ declare module '@wordpress/edit-post' {
     Record<string, unknown>
   >;
   export const PluginPrePublishPanel: ComponentType<Record<string, unknown>>;
+}
+
+declare module '@wordpress/editor' {
+  import type { ComponentType } from 'react';
+
   export const PluginDocumentSettingPanel: ComponentType<
     Record<string, unknown>
   >;
   export const PluginPostStatusInfo: ComponentType<Record<string, unknown>>;
+  export const PluginPrePublishPanel: ComponentType<Record<string, unknown>>;
 }
