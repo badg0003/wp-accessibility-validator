@@ -1,3 +1,48 @@
+.block-editor-block-list__block.wpav-block--flagged {
+  outline: 2px dashed #f05a27;
+  position: relative;
+}
+
+.wpav-toolbar-dropdown__list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.wpav-toolbar-dropdown__list li {
+  margin-bottom: 10px;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wpav-toolbar-dropdown__list li strong {
+  font-size: 13px;
+}
+
+.wpav-toolbar-dropdown__list li a {
+  color: #1c6fdb;
+  text-decoration: underline;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.wpav-highlight {
+  animation: wpav-highlight 2s ease;
+}
+
+@keyframes wpav-highlight {
+  0% {
+    box-shadow: 0 0 0 2px rgba(240, 90, 39, 0.8);
+  }
+  100% {
+    box-shadow: none;
+  }
+}
+
 .wpav-post-status-action__controls {
   display: flex;
   gap: 8px;

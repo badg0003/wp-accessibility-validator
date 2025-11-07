@@ -24,6 +24,14 @@ import {
   Notice,
   PanelBody,
   Spinner,
+  ToolbarButton,
+  Dropdown,
+  ToolbarGroup,
+  MenuGroup,
+  MenuItem,
+  __experimentalText as Text,
+  __experimentalItemGroup as ItemGroup,
+  __experimentalItem as Item,
 } from '@wordpress/components';
 import { Icon } from '@wordpress/icons';
 import {
@@ -36,6 +44,7 @@ import {
 } from '@wordpress/element';
 import { createHigherOrderComponent } from '@wordpress/compose';
 import { addFilter } from '@wordpress/hooks';
+import { BlockControls } from '@wordpress/block-editor';
 
 // Define a custom type for our violation to include the block name.
 interface ViolationWithContext extends axe.Result {
@@ -58,6 +67,7 @@ interface StoredScan extends ScanMetrics {
 
 interface BlockViolationState {
   blockViolations: Record<string, number>;
+  blockViolationDetails: Record<string, ViolationWithContext[]>;
 }
 
 const STORAGE_PREFIX = 'wpav-scan-';
@@ -123,8 +133,32 @@ const formatWcagLabelList = (
 const getStorageKey = (postId?: number | null) =>
   typeof postId === 'number' ? `${STORAGE_PREFIX}${postId}` : null;
 
+const focusBlockById = (clientId?: string) => {
+  if (!clientId) {
+    return;
+  }
+  const blockDispatch = dispatch('core/block-editor') as Record<string, any>;
+  blockDispatch?.selectBlock?.(clientId);
+};
+
+const openResultsPanel = () => {
+  const editPostDispatch = dispatch('core/edit-post') as Record<string, any>;
+  const editorSelect = select('core/editor') as Record<string, any>;
+
+  editPostDispatch?.openGeneralSidebar?.('edit-post/document');
+
+  if (
+    editPostDispatch?.toggleEditorPanelOpened &&
+    editorSelect?.isEditorPanelOpened &&
+    !editorSelect.isEditorPanelOpened(PANEL_STORE_ID)
+  ) {
+    editPostDispatch.toggleEditorPanelOpened(PANEL_STORE_ID);
+  }
+};
+
 const DEFAULT_STORE_STATE: BlockViolationState = {
   blockViolations: {},
+  blockViolationDetails: {},
 };
 
 const registerViolationStore = () => {
@@ -142,23 +176,32 @@ const registerViolationStore = () => {
   registerStore(STORE_NAME, {
     reducer: (
       state: BlockViolationState = DEFAULT_STORE_STATE,
-      action: { type: string; blockViolations?: Record<string, number> }
+      action: {
+        type: string;
+        blockViolations?: Record<string, number>;
+        blockViolationDetails?: Record<string, ViolationWithContext[]>;
+      }
     ) => {
       switch (action.type) {
         case 'SET_BLOCK_VIOLATIONS':
           return {
             ...state,
             blockViolations: action.blockViolations || {},
+            blockViolationDetails: action.blockViolationDetails || {},
           };
         default:
           return state;
       }
     },
     actions: {
-      setBlockViolations(blockViolations: Record<string, number>) {
+      setBlockViolations(
+        blockViolations: Record<string, number>,
+        blockViolationDetails: Record<string, ViolationWithContext[]>
+      ) {
         return {
           type: 'SET_BLOCK_VIOLATIONS',
           blockViolations,
+          blockViolationDetails,
         };
       },
     },
@@ -168,6 +211,12 @@ const registerViolationStore = () => {
       },
       hasBlockViolations(state: BlockViolationState, clientId: string) {
         return Boolean(state.blockViolations?.[clientId]);
+      },
+      getBlockViolationDetails(state: BlockViolationState) {
+        return state.blockViolationDetails;
+      },
+      getBlockViolationsForBlock(state: BlockViolationState, clientId: string) {
+        return state.blockViolationDetails?.[clientId] || [];
       },
     },
   });
@@ -192,19 +241,25 @@ const applyBlockViolationIndicator = () => {
   const withViolationIndicator = createHigherOrderComponent(
     (BlockListBlock: any) => {
       return (props: Record<string, any>) => {
-        const hasViolations = useSelect(
+        const violationCount = useSelect(
           (selectFn) => {
-            const store = selectFn(STORE_NAME) as Record<string, any> | undefined;
-            return store?.hasBlockViolations
-              ? store.hasBlockViolations(props.clientId)
-              : false;
+            const store = selectFn(STORE_NAME) as
+              | Record<string, any>
+              | undefined;
+            if (!store?.getBlockViolations) {
+              return 0;
+            }
+            const all = store.getBlockViolations() as Record<string, number>;
+            return all?.[props.clientId] || 0;
           },
           [props.clientId]
         );
 
+        const hasViolations = violationCount > 0;
+
         const className = [
           props.className,
-          hasViolations ? 'wpav-block--has-violations' : null,
+          hasViolations ? 'wpav-block--flagged' : null,
         ]
           .filter(Boolean)
           .join(' ');
@@ -212,6 +267,11 @@ const applyBlockViolationIndicator = () => {
         const wrapperProps = {
           ...props.wrapperProps,
           'data-wpav-block-has-violations': hasViolations ? 'true' : undefined,
+          'data-wpav-violation-label': hasViolations
+            ? violationCount === 1
+              ? '1 issue'
+              : `${violationCount} issues`
+            : undefined,
         };
 
         return (
@@ -236,6 +296,167 @@ const applyBlockViolationIndicator = () => {
 };
 
 applyBlockViolationIndicator();
+
+const applyBlockToolbarIndicator = () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const globalScope = window as Window &
+    typeof globalThis & { wpavToolbarFilterApplied?: boolean };
+
+  if (globalScope.wpavToolbarFilterApplied) {
+    return;
+  }
+
+  const withBlockToolbarIndicator = createHigherOrderComponent(
+    (BlockEdit: any) => {
+      return (props: Record<string, any>) => {
+        const { violationCount, violationDetails } = useSelect(
+          (selectFn) => {
+            const store = selectFn(STORE_NAME) as
+              | Record<string, any>
+              | undefined;
+            if (!store?.getBlockViolations) {
+              return { violationCount: 0, violationDetails: [] };
+            }
+            const counts = store.getBlockViolations() as Record<string, number>;
+            const details = store.getBlockViolationDetails
+              ? store.getBlockViolationDetails()
+              : {};
+            return {
+              violationCount: counts?.[props.clientId] || 0,
+              violationDetails: details?.[props.clientId] || [],
+            };
+          },
+          [props.clientId]
+        );
+
+        const hasViolations = violationCount > 0;
+        const label =
+          violationCount === 1
+            ? 'Accessibility checker: 1 issue detected'
+            : `Accessibility checker: ${violationCount} issues detected`;
+
+        const handleViewPanel = () => {
+          focusBlockById(props.clientId);
+          openResultsPanel();
+          const detailIds = violationDetails
+            .map((violation: ViolationWithContext) => violation.id)
+            .filter(Boolean);
+
+          const editPostDispatch = dispatch('core/edit-post') as Record<
+            string,
+            any
+          >;
+
+          if (editPostDispatch?.toggleEditorPanelOpened) {
+            editPostDispatch.toggleEditorPanelOpened(PANEL_STORE_ID, true);
+          }
+
+          if (detailIds.length > 0 && typeof document !== 'undefined') {
+            // Slight delay to allow panel to render before focusing.
+            window.requestAnimationFrame(() => {
+              detailIds.forEach((violationId: string) => {
+                const element = document.querySelector(
+                  `[data-wpav-violation-id="${violationId}"]`
+                ) as HTMLElement | null;
+                if (element) {
+                  element.classList.add('wpav-highlight');
+                  element.scrollIntoView({
+                    block: 'center',
+                    behavior: 'smooth',
+                  });
+                  window.setTimeout(() => {
+                    element.classList.remove('wpav-highlight');
+                  }, 2000);
+                }
+              });
+            });
+          }
+        };
+
+        return (
+          <Fragment>
+            <BlockEdit {...props} />
+            {hasViolations && (
+              <BlockControls>
+                <Dropdown
+                  popoverProps={{ className: 'wpav-toolbar-dropdown' }}
+                  renderToggle={({ isOpen, onToggle }) => (
+                    <ToolbarGroup>
+                      <ToolbarButton
+                        icon={<Icon icon={universalAccessIcon} />}
+                        label={label}
+                        showTooltip
+                        isPressed={isOpen}
+                        onClick={() => {
+                          focusBlockById(props.clientId);
+                          onToggle();
+                        }}
+                      />
+                    </ToolbarGroup>
+                  )}
+                  renderContent={({ onClose }) => (
+                    <MenuGroup
+                      label={
+                        violationCount === 1
+                          ? '1 issue found in this block'
+                          : `${violationCount} issues found in this block`
+                      }
+                    >
+                      <ItemGroup>
+                        {violationDetails.map(
+                          (violation: ViolationWithContext, index: number) => (
+                            <Item key={`${violation.id}-${index}`}>
+                              <Text isBlock>{violation.help}</Text>
+                              <Text isBlock variant="muted">
+                                {violation.description}
+                                {violation.helpUrl && (
+                                  <a
+                                    href={violation.helpUrl}
+                                    target="_blank"
+                                    rel="noreferrer noopener"
+                                  >
+                                    View guidance
+                                  </a>
+                                )}
+                              </Text>
+                            </Item>
+                          )
+                        )}
+                      </ItemGroup>
+
+                      <MenuItem
+                        onClick={() => {
+                          onClose();
+                          handleViewPanel();
+                        }}
+                      >
+                        Open accessibility panel
+                      </MenuItem>
+                    </MenuGroup>
+                  )}
+                />
+              </BlockControls>
+            )}
+          </Fragment>
+        );
+      };
+    },
+    'withBlockToolbarIndicator'
+  );
+
+  addFilter(
+    'editor.BlockEdit',
+    'wp-accessibility-validator/block-toolbar-indicator',
+    withBlockToolbarIndicator
+  );
+
+  globalScope.wpavToolbarFilterApplied = true;
+};
+
+applyBlockToolbarIndicator();
 
 const loadStoredScan = (key: string): StoredScan | null => {
   if (typeof window === 'undefined') {
@@ -385,7 +606,9 @@ async function runClientSideScan(): Promise<ScanMetrics> {
       }
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : 'An unexpected error occurred.';
+        error instanceof Error
+          ? error.message
+          : 'An unexpected error occurred.';
       errors.push(`"${block.name}" block: ${message}`);
     } finally {
       // Always clean up the element.
@@ -411,20 +634,17 @@ const AccessibilityCheckerSidebar = () => {
     const text = formatWcagLabelList(activeWcagTags, wcagLabelMap);
     return text || 'All available WCAG guidelines';
   }, [activeWcagTags, wcagLabelMap]);
-  const { postId, blocks } = useSelect(
-    (selectFn) => {
-      const editorStore = selectFn('core/editor') as Record<string, any>;
-      const blockStore = selectFn('core/block-editor') as Record<string, any>;
+  const { postId, blocks } = useSelect((selectFn) => {
+    const editorStore = selectFn('core/editor') as Record<string, any>;
+    const blockStore = selectFn('core/block-editor') as Record<string, any>;
 
-      return {
-        postId: editorStore?.getCurrentPostId
-          ? editorStore.getCurrentPostId()
-          : null,
-        blocks: blockStore?.getBlocks ? blockStore.getBlocks() : [],
-      };
-    },
-    []
-  );
+    return {
+      postId: editorStore?.getCurrentPostId
+        ? editorStore.getCurrentPostId()
+        : null,
+      blocks: blockStore?.getBlocks ? blockStore.getBlocks() : [],
+    };
+  }, []);
 
   const headerSlot = useHeaderButtonSlot();
 
@@ -456,31 +676,6 @@ const AccessibilityCheckerSidebar = () => {
     }
     return storedScan.contentHash !== contentSnapshot;
   }, [storedScan, contentSnapshot]);
-
-  const focusBlock = (clientId?: string) => {
-    if (!clientId) {
-      return;
-    }
-    const blockDispatch = dispatch('core/block-editor') as Record<string, any>;
-    if (blockDispatch?.selectBlock) {
-      blockDispatch.selectBlock(clientId);
-    }
-  };
-
-  const openResultsPanel = () => {
-    const editPostDispatch = dispatch('core/edit-post') as Record<string, any>;
-    const editPostSelect = select('core/edit-post') as Record<string, any>;
-
-    editPostDispatch?.openGeneralSidebar?.('edit-post/document');
-
-    if (
-      editPostDispatch?.toggleEditorPanelOpened &&
-      editPostSelect?.isEditorPanelOpened &&
-      !editPostSelect.isEditorPanelOpened(PANEL_STORE_ID)
-    ) {
-      editPostDispatch.toggleEditorPanelOpened(PANEL_STORE_ID);
-    }
-  };
 
   const announceNotice = (
     type: 'info' | 'success' | 'warning' | 'error',
@@ -528,7 +723,9 @@ const AccessibilityCheckerSidebar = () => {
       if (results.violations.length > 0) {
         announceNotice(
           'warning',
-          `Accessibility scan complete. Found ${results.violations.length} violation${results.violations.length === 1 ? '' : 's'}.`,
+          `Accessibility scan complete. Found ${
+            results.violations.length
+          } violation${results.violations.length === 1 ? '' : 's'}.`,
           { isDismissible: true }
         );
       } else {
@@ -539,7 +736,9 @@ const AccessibilityCheckerSidebar = () => {
         );
       }
     } catch (error) {
-      setRunError('Unable to complete the accessibility scan. Please try again.');
+      setRunError(
+        'Unable to complete the accessibility scan. Please try again.'
+      );
       // Surface the full error to the console for debugging.
       // eslint-disable-next-line no-console
       console.error('Accessibility scan failed', error);
@@ -585,37 +784,66 @@ const AccessibilityCheckerSidebar = () => {
       return {};
     }
 
-    return scanSummary.violations.reduce((acc, violation) => {
-      if (!violation.blockClientId) {
-        return acc;
-      }
+    return scanSummary.violations.reduce<Record<string, number>>(
+      (acc, violation) => {
+        if (!violation.blockClientId) {
+          return acc;
+        }
 
-      acc[violation.blockClientId] =
-        (acc[violation.blockClientId] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+        acc[violation.blockClientId] = (acc[violation.blockClientId] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
+  }, [scanSummary]);
+
+  const blockViolationDetails = useMemo(() => {
+    if (!scanSummary) {
+      return {};
+    }
+
+    return scanSummary.violations.reduce<
+      Record<string, ViolationWithContext[]>
+    >(
+      (acc, violation) => {
+        if (!violation.blockClientId) {
+          return acc;
+        }
+        if (!acc[violation.blockClientId]) {
+          acc[violation.blockClientId] = [];
+        }
+        acc[violation.blockClientId].push(violation);
+        return acc;
+      },
+      {} as Record<string, ViolationWithContext[]>
+    );
   }, [scanSummary]);
 
   useEffect(() => {
-    const storeDispatch = dispatch(STORE_NAME) as Record<string, any> | undefined;
-    storeDispatch?.setBlockViolations?.(blockViolationTotals);
-  }, [blockViolationTotals]);
+    const storeDispatch = dispatch(STORE_NAME) as
+      | Record<string, any>
+      | undefined;
+    storeDispatch?.setBlockViolations?.(
+      blockViolationTotals,
+      blockViolationDetails
+    );
+  }, [blockViolationTotals, blockViolationDetails]);
 
   return (
     <Fragment>
-      {headerSlot
-        ? createPortal(
-            <Button
-              className="wpav-header-button__trigger"
-              icon={<Icon icon={universalAccessIcon} />}
-              label="Run accessibility scan"
-              aria-label="Run accessibility scan"
-              onClick={handleScanClick}
-              disabled={isScanning}
-            />,
-            headerSlot
-          )
-        : (
+      {headerSlot ? (
+        createPortal(
+          <Button
+            className="wpav-header-button__trigger"
+            icon={<Icon icon={universalAccessIcon} />}
+            label="Run accessibility scan"
+            aria-label="Run accessibility scan"
+            onClick={handleScanClick}
+            disabled={isScanning}
+          />,
+          headerSlot
+        )
+      ) : (
         <PluginPostStatusInfo className="wpav-post-status-action">
           <div className="wpav-post-status-action__controls">
             <Button
@@ -628,7 +856,7 @@ const AccessibilityCheckerSidebar = () => {
             {isScanning && <Spinner />}
           </div>
         </PluginPostStatusInfo>
-        )}
+      )}
       <PluginDocumentSettingPanel
         name={PANEL_NAME}
         title="Accessibility Checker"
@@ -671,21 +899,23 @@ const AccessibilityCheckerSidebar = () => {
                 </p>
                 {completedAt && (
                   <p>
-                    <strong>Last run:</strong> {completedAt.toLocaleTimeString()}
+                    <strong>Last run:</strong>{' '}
+                    {completedAt.toLocaleTimeString()}
                   </p>
                 )}
               </div>
 
               {storedScan && isScanStale && (
                 <Notice status="info" isDismissible={false}>
-                  The post has changed since the last scan. Run the checker again
-                  to refresh these results.
+                  The post has changed since the last scan. Run the checker
+                  again to refresh these results.
                 </Notice>
               )}
 
               {scanSummary.violations.length === 0 ? (
                 <Notice status="success" isDismissible={false}>
-                  No accessibility violations were detected in the scanned blocks.
+                  No accessibility violations were detected in the scanned
+                  blocks.
                 </Notice>
               ) : (
                 <>
@@ -704,7 +934,10 @@ const AccessibilityCheckerSidebar = () => {
                         initialOpen={false}
                       >
                         {blockViolations.map((violation, index) => (
-                          <Card key={`${violation.id}-${index}`}>
+                          <Card
+                            key={`${violation.id}-${index}`}
+                            data-wpav-violation-id={violation.id}
+                          >
                             <CardBody>
                               <p>
                                 <strong>{violation.help}</strong>
@@ -720,7 +953,9 @@ const AccessibilityCheckerSidebar = () => {
                                   {violation.nodes.map((node, nodeIndex) => (
                                     <li key={nodeIndex}>
                                       <code>
-                                        {node.target?.join(' ') || node.html || 'Unknown'}
+                                        {node.target?.join(' ') ||
+                                          node.html ||
+                                          'Unknown'}
                                       </code>
                                     </li>
                                   ))}
@@ -728,7 +963,9 @@ const AccessibilityCheckerSidebar = () => {
                               </div>
                               <div className="wpav-card-actions">
                                 <Button
-                                  onClick={() => focusBlock(violation.blockClientId)}
+                                  onClick={() =>
+                                    focusBlockById(violation.blockClientId)
+                                  }
                                   variant="primary"
                                 >
                                   Go to block
@@ -791,7 +1028,9 @@ const AccessibilityCheckerSidebar = () => {
             </p>
           </>
         ) : (
-          <p>Run the accessibility checker to view results prior to publishing.</p>
+          <p>
+            Run the accessibility checker to view results prior to publishing.
+          </p>
         )}
       </PluginPrePublishPanel>
     </Fragment>

@@ -55,6 +55,7 @@ class WP_Accessibility_Validator_Admin {
 		add_action( 'enqueue_block_editor_assets', array( $this, 'enqueue_scripts' ) );
 		add_action( 'admin_menu', array( $this, 'register_settings_page' ) );
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
+		add_filter( 'block_editor_settings_all', array( $this, 'inject_editor_styles' ) );
 	}
 
 	/**
@@ -82,6 +83,44 @@ class WP_Accessibility_Validator_Admin {
 				'defaultWcagTags'   => array_keys( $this->wcag_options ),
 			)
 		);
+
+		wp_enqueue_style(
+			$this->plugin_name . '-editor',
+			plugin_dir_url( __FILE__ ) . '../build/style-index.css',
+			array( 'wp-edit-blocks' ),
+			$asset_file['version']
+		);
+	}
+
+	/**
+	 * Ensures the editor iframe receives the plugin styles.
+	 *
+	 * @param array $settings Block editor settings.
+	 *
+	 * @return array
+	 */
+	public function inject_editor_styles( $settings ) {
+		$css_path = plugin_dir_path( __FILE__ ) . '../build/style-index.css';
+
+		if ( ! file_exists( $css_path ) ) {
+			return $settings;
+		}
+
+		$css = file_get_contents( $css_path );
+
+		if ( ! $css ) {
+			return $settings;
+		}
+
+		if ( ! isset( $settings['styles'] ) || ! is_array( $settings['styles'] ) ) {
+			$settings['styles'] = array();
+		}
+
+		$settings['styles'][] = array(
+			'css' => $css,
+		);
+
+		return $settings;
 	}
 
 	/**

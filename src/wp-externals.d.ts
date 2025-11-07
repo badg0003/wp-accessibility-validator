@@ -31,3 +31,14 @@ declare module '@wordpress/editor' {
   export const PluginPostStatusInfo: ComponentType<Record<string, unknown>>;
   export const PluginPrePublishPanel: ComponentType<Record<string, unknown>>;
 }
+
+declare module '@wordpress/block-editor' {
+  import type { ComponentType, ReactNode } from 'react';
+
+  interface BlockControlsProps {
+    group?: string;
+    children?: ReactNode;
+  }
+
+  export const BlockControls: ComponentType<BlockControlsProps>;
+}
