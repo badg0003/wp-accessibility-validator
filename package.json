@@ -1,0 +1,23 @@
+{
+  "name": "wp-accessibility-validator",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "wp-scripts build",
+    "start": "wp-scripts start"
+  },
+  "devDependencies": {
+    "@wordpress/scripts": "^27.6.0"
+  },
+  "dependencies": {
+    "@wordpress/api-fetch": "^6.50.0",
+    "@wordpress/blocks": "^12.29.0",
+    "@wordpress/components": "^26.0.0",
+    "@wordpress/data": "^9.22.0",
+    "@wordpress/edit-post": "^7.29.0",
+    "@wordpress/editor": "^13.29.0",
+    "@wordpress/icons": "^9.44.0",
+    "@wordpress/plugins": "^6.29.0",
+    "axe-core": "^4.9.1"
+  }
+}
