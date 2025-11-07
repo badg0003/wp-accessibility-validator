@@ -26,14 +26,14 @@ import {
   Spinner,
   ToolbarButton,
   Dropdown,
-  ToolbarGroup,
   MenuGroup,
   MenuItem,
+  Flex,
+  FlexItem,
   __experimentalText as Text,
-  __experimentalItemGroup as ItemGroup,
-  __experimentalItem as Item,
+  ToolbarGroup,
 } from '@wordpress/components';
-import { Icon } from '@wordpress/icons';
+import { Icon, warning } from '@wordpress/icons';
 import {
   Fragment,
   createElement,
@@ -83,6 +83,23 @@ const DEFAULT_WCAG_TAGS = [
   'wcag21aa',
   'wcag22aa',
 ];
+
+const IMPACT_META: Record<
+  NonNullable<ViolationWithContext['impact']>,
+  { color: string; label: string }
+> = {
+  critical: { color: '#d63638', label: 'Critical impact' },
+  serious: { color: '#c9356e', label: 'Serious impact' },
+  moderate: { color: '#f0b849', label: 'Moderate impact' },
+  minor: { color: '#58a942', label: 'Minor impact' },
+};
+
+const getImpactMeta = (impact?: ViolationWithContext['impact']) => {
+  if (impact && IMPACT_META[impact]) {
+    return IMPACT_META[impact];
+  }
+  return { color: '#757575', label: 'Impact not available' };
+};
 
 const getAvailableWcagLabels = (): Record<string, string> => {
   if (typeof window === 'undefined') {
@@ -338,12 +355,17 @@ const applyBlockToolbarIndicator = () => {
             ? 'Accessibility checker: 1 issue detected'
             : `Accessibility checker: ${violationCount} issues detected`;
 
-        const handleViewPanel = () => {
+        const handleViewPanel = (
+          targetViolationIds?: Array<string | undefined>
+        ) => {
           focusBlockById(props.clientId);
           openResultsPanel();
-          const detailIds = violationDetails
-            .map((violation: ViolationWithContext) => violation.id)
-            .filter(Boolean);
+          const detailIds = (
+            targetViolationIds ||
+            violationDetails.map(
+              (violation: ViolationWithContext) => violation.id
+            )
+          ).filter(Boolean) as string[];
 
           const editPostDispatch = dispatch('core/edit-post') as Record<
             string,
@@ -382,6 +404,7 @@ const applyBlockToolbarIndicator = () => {
             {hasViolations && (
               <BlockControls>
                 <Dropdown
+                  position="bottom center"
                   popoverProps={{ className: 'wpav-toolbar-dropdown' }}
                   renderToggle={({ isOpen, onToggle }) => (
                     <ToolbarGroup>
@@ -398,44 +421,65 @@ const applyBlockToolbarIndicator = () => {
                     </ToolbarGroup>
                   )}
                   renderContent={({ onClose }) => (
-                    <MenuGroup
-                      label={
-                        violationCount === 1
-                          ? '1 issue found in this block'
-                          : `${violationCount} issues found in this block`
-                      }
-                    >
-                      <ItemGroup>
-                        {violationDetails.map(
-                          (violation: ViolationWithContext, index: number) => (
-                            <Item key={`${violation.id}-${index}`}>
-                              <Text isBlock>{violation.help}</Text>
-                              <Text isBlock variant="muted">
-                                {violation.description}
-                                {violation.helpUrl && (
-                                  <a
-                                    href={violation.helpUrl}
-                                    target="_blank"
-                                    rel="noreferrer noopener"
-                                  >
-                                    View guidance
-                                  </a>
-                                )}
-                              </Text>
-                            </Item>
-                          )
-                        )}
-                      </ItemGroup>
-
-                      <MenuItem
-                        onClick={() => {
-                          onClose();
-                          handleViewPanel();
-                        }}
+                    <div className="wpav-toolbar-dropdown__content">
+                      <MenuGroup
+                        label={
+                          violationCount === 1
+                            ? '1 issue found in this block'
+                            : `${violationCount} issues found in this block`
+                        }
                       >
-                        Open accessibility panel
-                      </MenuItem>
-                    </MenuGroup>
+                        {violationDetails.map(
+                          (violation: ViolationWithContext, index: number) => {
+                            const impactMeta = getImpactMeta(violation.impact);
+                            return (
+                              <Flex
+                                align="top"
+                                key={`${violation.id}-${index}`}
+                                // onClick={() => {
+                                //   onClose();
+                                //   handleViewPanel([violation.id]);
+                                // }}
+                              >
+                                <FlexItem>
+                                  <Icon
+                                    icon={warning}
+                                    style={{ fill: impactMeta.color }}
+                                  />
+                                </FlexItem>
+                                <FlexItem>
+                                  <Text isBlock>{violation.help}</Text>
+                                  <Text isBlock variant="muted">
+                                    {violation.description}
+                                  </Text>
+                                  {violation.helpUrl && (
+                                    <Text isBlock>
+                                      <a
+                                        href={violation.helpUrl}
+                                        target="_blank"
+                                        rel="noreferrer noopener"
+                                      >
+                                        View guidance
+                                      </a>
+                                    </Text>
+                                  )}
+                                </FlexItem>
+                              </Flex>
+                            );
+                          }
+                        )}
+                      </MenuGroup>
+                      <MenuGroup>
+                        <MenuItem
+                          onClick={() => {
+                            onClose();
+                            handleViewPanel();
+                          }}
+                        >
+                          Open accessibility panel
+                        </MenuItem>
+                      </MenuGroup>
+                    </div>
                   )}
                 />
               </BlockControls>
