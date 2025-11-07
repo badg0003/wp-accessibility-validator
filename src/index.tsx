@@ -3,6 +3,7 @@
  */
 import axe from 'axe-core';
 import './style.scss';
+import universalAccessIcon from './icons/universal-access-icon';
 
 /**
  * WordPress dependencies
@@ -23,7 +24,7 @@ import {
   PanelBody,
   Spinner,
 } from '@wordpress/components';
-import { Icon, check } from '@wordpress/icons';
+import { Icon } from '@wordpress/icons';
 import {
   Fragment,
   createElement,
@@ -394,7 +395,7 @@ const AccessibilityCheckerSidebar = () => {
         ? createPortal(
             <Button
               className="wpav-header-button__trigger"
-              icon={<Icon icon={check} />}
+              icon={<Icon icon={universalAccessIcon} />}
               label="Run accessibility scan"
               aria-label="Run accessibility scan"
               onClick={handleScanClick}
@@ -406,7 +407,7 @@ const AccessibilityCheckerSidebar = () => {
         <PluginPostStatusInfo className="wpav-post-status-action">
           <div className="wpav-post-status-action__controls">
             <Button
-              icon={<Icon icon={check} />}
+              icon={<Icon icon={universalAccessIcon} />}
               label="Run accessibility scan"
               aria-label="Run accessibility scan"
               onClick={handleScanClick}
@@ -419,7 +420,7 @@ const AccessibilityCheckerSidebar = () => {
       <PluginDocumentSettingPanel
         name={PANEL_NAME}
         title="Accessibility Checker"
-        icon={<Icon icon={check} />}
+        icon={<Icon icon={universalAccessIcon} />}
         className="wpav-panel"
       >
         <div className="wpav-panel__notices">
@@ -551,7 +552,7 @@ const AccessibilityCheckerSidebar = () => {
 
       <PluginPrePublishPanel
         title="Accessibility scan status"
-        icon={<Icon icon={check} />}
+        icon={<Icon icon={universalAccessIcon} />}
       >
         {scanSummary ? (
           <>
