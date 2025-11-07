@@ -1,0 +1,37 @@
+.wpav-post-status-action__controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.wpav-header-button {
+  display: flex;
+  align-items: center;
+  margin-right: 8px;
+}
+
+.wpav-header-button__trigger {
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
+.wpav-summary {
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.wpav-panel__notices > * + * {
+  margin-top: 8px;
+}
+
+.wpav-panel .components-notice {
+  margin-top: 0;
+}
+
+.wpav-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
