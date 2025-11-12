@@ -170,35 +170,6 @@ export const AccessibilityCheckerSidebar = () => {
 					<p>
 						<strong>Active WCAG filters:</strong> {wcagLabelText}
 					</p>
-					
-					{/* Scan mode info */}
-					<div style={{ marginTop: '12px' }}>
-						<p style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>
-							<strong>Scan mode:</strong> Preview page scan
-						</p>
-						{previewUrl && (
-							<div>
-								<p style={{ fontSize: '11px', color: '#666', marginBottom: '4px' }}>
-									Preview URL: {previewUrl}
-								</p>
-								<Button
-									variant="secondary"
-									size="small"
-									onClick={() => {
-										// Open preview in new tab for manual testing
-										window.open(previewUrl, '_blank');
-									}}
-								>
-									Open Preview
-								</Button>
-							</div>
-						)}
-						{!previewUrl && (
-							<p style={{ fontSize: '12px', color: '#757575', marginTop: '4px' }}>
-								Preview URL not available. Save the post first.
-							</p>
-						)}
-					</div>
 				</div>
 
 				{/* Results */}
