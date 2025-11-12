@@ -2,7 +2,7 @@
  * Main accessibility checker sidebar component.
  */
 
-import { Fragment, createElement, createPortal, useMemo } from '@wordpress/element';
+import { Fragment, createElement, createPortal, useMemo, useState } from '@wordpress/element';
 import { useSelect } from '@wordpress/data';
 import { serialize } from '@wordpress/blocks';
 import {
@@ -72,6 +72,15 @@ export const AccessibilityCheckerSidebar = () => {
 	// Header button slot
 	const headerSlot = useHeaderButtonSlot();
 
+	// Scan mode state
+	const [scanMode, setScanMode] = useState<'blocks' | 'preview'>('blocks');
+
+	// Get preview URL if available
+	const previewUrl = useSelect((selectFn) => {
+		const editorStore = selectFn('core/editor') as any;
+		return editorStore?.getEditedPostPreviewLink?.() || null;
+	}, []);
+
 	// Stored scan management
 	const { storedScan, isScanStale, persistScan } = useStoredScan(
 		postId,
@@ -90,6 +99,8 @@ export const AccessibilityCheckerSidebar = () => {
 	} = useAccessibilityScan({
 		contentSnapshot,
 		persistScan,
+		scanMode,
+		previewUrl,
 	});
 
 	// Load stored scan on mount
@@ -160,6 +171,52 @@ export const AccessibilityCheckerSidebar = () => {
 					<p>
 						<strong>Active WCAG filters:</strong> {wcagLabelText}
 					</p>
+					
+					{/* Scan mode toggle */}
+					<div style={{ marginTop: '12px' }}>
+						<label style={{ display: 'block', marginBottom: '8px' }}>
+							<strong>Scan mode:</strong>
+						</label>
+						<div style={{ display: 'flex', gap: '8px' }}>
+							<Button
+								variant={scanMode === 'blocks' ? 'primary' : 'secondary'}
+								size="small"
+								onClick={() => setScanMode('blocks')}
+							>
+								Block Scan
+							</Button>
+							<Button
+								variant={scanMode === 'preview' ? 'primary' : 'secondary'}
+								size="small"
+								onClick={() => setScanMode('preview')}
+								disabled={!previewUrl}
+							>
+								Preview Scan
+							</Button>
+						</div>
+						{scanMode === 'preview' && previewUrl && (
+							<div style={{ marginTop: '8px' }}>
+								<p style={{ fontSize: '11px', color: '#666', marginBottom: '4px' }}>
+									Preview URL: {previewUrl}
+								</p>
+								<Button
+									variant="secondary"
+									size="small"
+									onClick={() => {
+										// Open preview in new tab for manual testing
+										window.open(previewUrl, '_blank');
+									}}
+								>
+									Open Preview
+								</Button>
+							</div>
+						)}
+						{scanMode === 'preview' && !previewUrl && (
+							<p style={{ fontSize: '12px', color: '#757575', marginTop: '4px' }}>
+								Preview URL not available. Save the post first.
+							</p>
+						)}
+					</div>
 				</div>
 
 				{/* Results */}

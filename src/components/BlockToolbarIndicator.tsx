@@ -20,7 +20,7 @@ import {
 	FlexItem,
 	__experimentalText as Text,
 } from '@wordpress/components';
-import { Icon, warning } from '@wordpress/icons';
+import { Icon, caution } from '@wordpress/icons';
 import universalAccessIcon from '../icons/universal-access-icon';
 import type { BlockEditProps, ViolationWithContext } from '../types';
 import { STORE_NAME, CSS_CLASSES } from '../constants';
@@ -114,7 +114,7 @@ const withBlockToolbarIndicator = createHigherOrderComponent(
 														>
 															<FlexItem>
 																<Icon
-																	icon={warning}
+																	icon={caution}
 																	style={{ fill: impactMeta.color }}
 																/>
 															</FlexItem>

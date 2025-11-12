@@ -56,6 +56,7 @@ class WP_Accessibility_Validator_Admin {
 		add_action( 'admin_menu', array( $this, 'register_settings_page' ) );
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
 		add_filter( 'block_editor_settings_all', array( $this, 'inject_editor_styles' ) );
+		add_filter( 'render_block', array( $this, 'add_block_stable_id' ), 10, 2 );
 	}
 
 	/**
@@ -272,5 +273,60 @@ class WP_Accessibility_Validator_Admin {
 			'best-practice' => __( 'Best practices (non-WCAG)', 'wp-accessibility-validator' ),
 			'review-item'   => __( 'Manual review items', 'wp-accessibility-validator' ),
 		);
+	}
+
+	/**
+	 * Adds stable block IDs to rendered block HTML for accessibility scanning.
+	 *
+	 * @param string $block_content The block content.
+	 * @param array  $block         The block data.
+	 *
+	 * @return string Modified block content with stable IDs.
+	 */
+	public function add_block_stable_id( $block_content, $block ) {
+		// Only add IDs to text content blocks that can have accessibility issues
+		$text_blocks = array( 'core/paragraph', 'core/heading', 'core/list', 'core/quote' );
+
+		if ( ! in_array( $block['blockName'], $text_blocks, true ) ) {
+			return $block_content;
+		}
+
+		// Use block position/index for stable ID generation (matches JavaScript)
+		// We need to track block position globally since render_block doesn't provide it
+		static $block_index = 0;
+		$stable_id = 'wpav-block-' . $block_index;
+		$block_index++;
+
+		// Debug: Log what we're using
+		error_log( "WPAV PHP: Block {$block['blockName']} at index " . ($block_index - 1) . " -> {$stable_id}" );
+
+		// Add data-wpav-block-id to text elements (p, h1-h6, li, etc.)
+		$dom = new DOMDocument();
+		libxml_use_internal_errors( true ); // Suppress warnings for malformed HTML
+
+		if ( ! $dom->loadHTML( '<div>' . $block_content . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD ) ) {
+			return $block_content;
+		}
+
+		libxml_clear_errors();
+
+		$xpath = new DOMXPath( $dom );
+		$text_elements = $xpath->query( '//p | //h1 | //h2 | //h3 | //h4 | //h5 | //h6 | //li | //blockquote' );
+
+		foreach ( $text_elements as $element ) {
+			$element->setAttribute( 'data-wpav-block-id', $stable_id );
+		}
+
+		// Extract the modified content
+		$container = $dom->getElementsByTagName( 'div' )->item( 0 );
+		if ( $container ) {
+			$content = '';
+			foreach ( $container->childNodes as $child ) {
+				$content .= $dom->saveHTML( $child );
+			}
+			return $content;
+		}
+
+		return $block_content;
 	}
 }
