@@ -72,8 +72,8 @@ export const AccessibilityCheckerSidebar = () => {
 	// Header button slot
 	const headerSlot = useHeaderButtonSlot();
 
-	// Scan mode state
-	const [scanMode, setScanMode] = useState<'blocks' | 'preview'>('blocks');
+	// Scan mode state - now always preview
+	const scanMode = 'preview';
 
 	// Get preview URL if available
 	const previewUrl = useSelect((selectFn) => {
@@ -99,7 +99,6 @@ export const AccessibilityCheckerSidebar = () => {
 	} = useAccessibilityScan({
 		contentSnapshot,
 		persistScan,
-		scanMode,
 		previewUrl,
 	});
 
@@ -172,30 +171,13 @@ export const AccessibilityCheckerSidebar = () => {
 						<strong>Active WCAG filters:</strong> {wcagLabelText}
 					</p>
 					
-					{/* Scan mode toggle */}
+					{/* Scan mode info */}
 					<div style={{ marginTop: '12px' }}>
-						<label style={{ display: 'block', marginBottom: '8px' }}>
-							<strong>Scan mode:</strong>
-						</label>
-						<div style={{ display: 'flex', gap: '8px' }}>
-							<Button
-								variant={scanMode === 'blocks' ? 'primary' : 'secondary'}
-								size="small"
-								onClick={() => setScanMode('blocks')}
-							>
-								Block Scan
-							</Button>
-							<Button
-								variant={scanMode === 'preview' ? 'primary' : 'secondary'}
-								size="small"
-								onClick={() => setScanMode('preview')}
-								disabled={!previewUrl}
-							>
-								Preview Scan
-							</Button>
-						</div>
-						{scanMode === 'preview' && previewUrl && (
-							<div style={{ marginTop: '8px' }}>
+						<p style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>
+							<strong>Scan mode:</strong> Preview page scan
+						</p>
+						{previewUrl && (
+							<div>
 								<p style={{ fontSize: '11px', color: '#666', marginBottom: '4px' }}>
 									Preview URL: {previewUrl}
 								</p>
@@ -211,7 +193,7 @@ export const AccessibilityCheckerSidebar = () => {
 								</Button>
 							</div>
 						)}
-						{scanMode === 'preview' && !previewUrl && (
+						{!previewUrl && (
 							<p style={{ fontSize: '12px', color: '#757575', marginTop: '4px' }}>
 								Preview URL not available. Save the post first.
 							</p>

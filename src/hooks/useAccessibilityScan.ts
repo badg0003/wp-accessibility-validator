@@ -10,7 +10,6 @@ interface UseAccessibilityScanOptions {
 	onScanComplete?: (scan: ScanMetrics) => void;
 	contentSnapshot: string;
 	persistScan?: (scan: StoredScan) => void;
-	scanMode?: 'blocks' | 'preview';
 	previewUrl?: string;
 }
 
@@ -24,7 +23,6 @@ export const useAccessibilityScan = ({
 	onScanComplete,
 	contentSnapshot,
 	persistScan,
-	scanMode = 'blocks',
 	previewUrl,
 }: UseAccessibilityScanOptions) => {
 	const [isScanning, setIsScanning] = useState(false);
@@ -36,19 +34,16 @@ export const useAccessibilityScan = ({
 		setIsScanning(true);
 		setRunError(null);
 		
-		const scanType = scanMode === 'preview' ? 'preview' : 'block';
-		announceNotice('info', `Running ${scanType} accessibility scan…`, {
+		announceNotice('info', 'Running preview accessibility scan…', {
 			isDismissible: false,
 		});
 
 		try {
-			let results: ScanMetrics;
-
-			if (scanMode === 'preview' && previewUrl) {
-				results = await runPreviewScan(previewUrl);
-			} else {
-				results = await runClientSideScan();
+			if (!previewUrl) {
+				throw new Error('Preview URL is required for scanning');
 			}
+
+			const results = await runPreviewScan(previewUrl);
 			setScanSummary(results);
 			const completedDate = new Date();
 			setCompletedAt(completedDate);
@@ -99,7 +94,7 @@ export const useAccessibilityScan = ({
 		} finally {
 			setIsScanning(false);
 		}
-	}, [contentSnapshot, onScanComplete, persistScan, scanMode, previewUrl]);
+	}, [contentSnapshot, onScanComplete, persistScan, previewUrl]);
 
 	return {
 		isScanning,
