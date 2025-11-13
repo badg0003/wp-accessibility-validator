@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "build": "wp-scripts build",
-    "start": "wp-scripts start"
+    "start": "wp-scripts start",
+    "package": "npm run build && zip -r ../wp-accessibility-validator-${npm_package_version}.zip . -x \"node_modules/*\" \".git/*\" \"src/*\" \"tests/*\" \".vscode/*\" \".github/*\""
   },
   "devDependencies": {
     "@types/wordpress__blocks": "^12.5.18",

@@ -1,0 +1,55 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: |
+          cd wp-content/plugins/wp-accessibility-validator
+          npm ci
+
+      - name: Build assets
+        run: |
+          cd wp-content/plugins/wp-accessibility-validator
+          npm run build
+
+      - name: Package plugin
+        run: |
+          cd wp-content/plugins/wp-accessibility-validator
+          npm run package
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+      - name: Upload release asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: wp-content/plugins/wp-accessibility-validator/../wp-accessibility-validator-${{ github.ref }}.zip
+          asset_name: wp-accessibility-validator-${{ github.ref }}.zip
+          asset_content_type: application/zip
