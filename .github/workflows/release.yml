@@ -8,10 +8,15 @@ on:
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
+    env:
+      # github.ref looks like refs/tags/vX.Y.Z — github.ref_name is the short tag
+      VERSION: ${{ github.ref_name }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Use Node.js
         uses: actions/setup-node@v4
@@ -32,6 +37,25 @@ jobs:
         run: |
           cd wp-content/plugins/wp-accessibility-validator
           npm run package
+          # move the generated zip to a known location for upload
+          mkdir -p dist
+          mv ../wp-accessibility-validator-${{ env.VERSION }}.zip dist/
+
+      - name: Generate release notes
+        id: gen_notes
+        run: |
+          set -e
+          cd wp-content/plugins/wp-accessibility-validator/../../..
+          # Try to find previous tag; if none, include all commits
+          PREV_TAG=$(git describe --tags --abbrev=0 ${GITHUB_REF}^ 2>/dev/null || true)
+          if [ -n "$PREV_TAG" ]; then
+            git log --pretty=format:"- %s (%h)" "$PREV_TAG"..HEAD > release_notes.txt || true
+          else
+            git log --pretty=format:"- %s (%h)" HEAD > release_notes.txt || true
+          fi
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          cat release_notes.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         id: create_release
@@ -39,8 +63,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
+          tag_name: ${{ env.VERSION }}
+          release_name: Release ${{ env.VERSION }}
           draft: false
           prerelease: false
 
@@ -50,6 +74,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: wp-content/plugins/wp-accessibility-validator/../wp-accessibility-validator-${{ github.ref }}.zip
-          asset_name: wp-accessibility-validator-${{ github.ref }}.zip
+          asset_path: dist/wp-accessibility-validator-${{ env.VERSION }}.zip
+          asset_name: wp-accessibility-validator-${{ env.VERSION }}.zip
           asset_content_type: application/zip
