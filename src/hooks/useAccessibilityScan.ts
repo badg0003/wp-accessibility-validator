@@ -10,7 +10,7 @@ interface UseAccessibilityScanOptions {
 	onScanComplete?: (scan: ScanMetrics) => void;
 	contentSnapshot: string;
 	persistScan?: (scan: StoredScan) => void;
-	previewUrl?: string;
+	previewUrl?: string | null;
 }
 
 /**
