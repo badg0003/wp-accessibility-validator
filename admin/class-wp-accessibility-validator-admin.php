@@ -1,4 +1,5 @@
 <?php
+
 /**
  * The admin-specific functionality of the plugin.
  *
@@ -15,7 +16,8 @@
  * Defines the plugin name, version, and two examples hooks for how to
  * enqueue the admin-specific stylesheet and JavaScript.
  */
-class WP_Accessibility_Validator_Admin {
+class WP_Accessibility_Validator_Admin
+{
 
 	/**
 	 * The ID of this plugin.
@@ -47,16 +49,17 @@ class WP_Accessibility_Validator_Admin {
 	 *
 	 * @since    1.0.0
 	 */
-	public function __construct() {
+	public function __construct()
+	{
 		$this->plugin_name = 'wp-accessibility-validator';
 		$this->version     = WPAV_VERSION;
 		$this->wcag_options = $this->get_wcag_options();
 
-		add_action( 'enqueue_block_editor_assets', array( $this, 'enqueue_scripts' ) );
-		add_action( 'admin_menu', array( $this, 'register_settings_page' ) );
-		add_action( 'admin_init', array( $this, 'register_settings' ) );
-		add_filter( 'block_editor_settings_all', array( $this, 'inject_editor_styles' ) );
-		add_filter( 'render_block', array( $this, 'add_block_stable_id' ), 10, 2 );
+		add_action('enqueue_block_editor_assets', array($this, 'enqueue_scripts'));
+		add_action('admin_menu', array($this, 'register_settings_page'));
+		add_action('admin_init', array($this, 'register_settings'));
+		add_filter('block_editor_settings_all', array($this, 'inject_editor_styles'));
+		add_filter('render_block', array($this, 'add_block_stable_id'), 10, 2);
 	}
 
 	/**
@@ -64,12 +67,13 @@ class WP_Accessibility_Validator_Admin {
 	 *
 	 * @since    1.0.0
 	 */
-	public function enqueue_scripts() {
-		$asset_file = include( plugin_dir_path( __FILE__ ) . '../build/index.asset.php' );
+	public function enqueue_scripts()
+	{
+		$asset_file = include(plugin_dir_path(__FILE__) . '../build/index.asset.php');
 
 		wp_enqueue_script(
 			$this->plugin_name,
-			plugin_dir_url( __FILE__ ) . '../build/index.js',
+			plugin_dir_url(__FILE__) . '../build/index.js',
 			$asset_file['dependencies'],
 			$asset_file['version'],
 			true
@@ -81,14 +85,14 @@ class WP_Accessibility_Validator_Admin {
 			array(
 				'wcagTags'          => $this->get_selected_wcag_tags(),
 				'availableWcagTags' => $this->wcag_options,
-				'defaultWcagTags'   => array_keys( $this->wcag_options ),
+				'defaultWcagTags'   => array_keys($this->wcag_options),
 			)
 		);
 
 		wp_enqueue_style(
 			$this->plugin_name . '-editor',
-			plugin_dir_url( __FILE__ ) . '../build/style-index.css',
-			array( 'wp-edit-blocks' ),
+			plugin_dir_url(__FILE__) . '../build/style-index.css',
+			array('wp-edit-blocks'),
 			$asset_file['version']
 		);
 	}
@@ -100,20 +104,21 @@ class WP_Accessibility_Validator_Admin {
 	 *
 	 * @return array
 	 */
-	public function inject_editor_styles( $settings ) {
-		$css_path = plugin_dir_path( __FILE__ ) . '../build/style-index.css';
+	public function inject_editor_styles($settings)
+	{
+		$css_path = plugin_dir_path(__FILE__) . '../build/style-index.css';
 
-		if ( ! file_exists( $css_path ) ) {
+		if (! file_exists($css_path)) {
 			return $settings;
 		}
 
-		$css = file_get_contents( $css_path );
+		$css = file_get_contents($css_path);
 
-		if ( ! $css ) {
+		if (! $css) {
 			return $settings;
 		}
 
-		if ( ! isset( $settings['styles'] ) || ! is_array( $settings['styles'] ) ) {
+		if (! isset($settings['styles']) || ! is_array($settings['styles'])) {
 			$settings['styles'] = array();
 		}
 
@@ -127,64 +132,67 @@ class WP_Accessibility_Validator_Admin {
 	/**
 	 * Register the plugin settings page.
 	 */
-	public function register_settings_page() {
+	public function register_settings_page()
+	{
 		add_options_page(
-			__( 'Accessibility Validator', 'wp-accessibility-validator' ),
-			__( 'Accessibility Validator', 'wp-accessibility-validator' ),
+			__('Accessibility Validator', 'wp-accessibility-validator'),
+			__('Accessibility Validator', 'wp-accessibility-validator'),
 			'manage_options',
 			'wpav-settings',
-			array( $this, 'render_settings_page' )
+			array($this, 'render_settings_page')
 		);
 	}
 
 	/**
 	 * Render the settings page markup.
 	 */
-	public function render_settings_page() {
-		if ( ! current_user_can( 'manage_options' ) ) {
+	public function render_settings_page()
+	{
+		if (! current_user_can('manage_options')) {
 			return;
 		}
-		?>
+?>
 		<div class="wrap">
-			<h1><?php esc_html_e( 'Accessibility Validator', 'wp-accessibility-validator' ); ?></h1>
+			<h1><?php esc_html_e('Accessibility Validator', 'wp-accessibility-validator'); ?></h1>
 			<form method="post" action="options.php">
 				<?php
-				settings_fields( 'wpav_settings' );
-				do_settings_sections( 'wpav_settings' );
+				settings_fields('wpav_settings');
+				do_settings_sections('wpav_settings');
 				submit_button();
 				?>
 			</form>
 		</div>
-		<?php
+<?php
 	}
 
 	/**
 	 * Register settings, section, and fields.
 	 */
-	public function register_settings() {
+	public function register_settings()
+	{
 		register_setting(
 			'wpav_settings',
 			'wpav_wcag_tags',
 			array(
 				'type'              => 'array',
-				'sanitize_callback' => array( $this, 'sanitize_wcag_tags' ),
-				'default'           => array_keys( $this->wcag_options ),
+				'sanitize_callback' => array($this, 'sanitize_wcag_tags'),
+				'default'           => array_keys($this->wcag_options),
 			)
 		);
 
 		add_settings_section(
 			'wpav_settings_section',
-			__( 'Scan Settings', 'wp-accessibility-validator' ),
+			__('Scan Settings', 'wp-accessibility-validator'),
 			function () {
-				echo '<p>' . esc_html__( 'Choose which WCAG guidelines should be enforced when running scans.', 'wp-accessibility-validator' ) . '</p>';
+				echo '<p>' . esc_html__('Choose which WCAG guidelines should be enforced when running scans.', 'wp-accessibility-validator') . '</p>';
 			},
 			'wpav_settings'
 		);
 
 		add_settings_field(
 			'wpav_wcag_tags_field',
-			__( 'WCAG guidelines', 'wp-accessibility-validator' ),
-			array( $this, 'render_wcag_tags_field' ),
+			__('WCAG guidelines', 'wp-accessibility-validator'),
+			array($this, 'render_wcag_tags_field'),
 			'wpav_settings',
 			'wpav_settings_section'
 		);
@@ -193,15 +201,16 @@ class WP_Accessibility_Validator_Admin {
 	/**
 	 * Output checkbox controls for each WCAG tag.
 	 */
-	public function render_wcag_tags_field() {
+	public function render_wcag_tags_field()
+	{
 		$selected = $this->get_selected_wcag_tags();
 
-		foreach ( $this->wcag_options as $tag => $label ) {
+		foreach ($this->wcag_options as $tag => $label) {
 			printf(
 				'<label style="display:block;margin-bottom:4px;"><input type="checkbox" name="wpav_wcag_tags[]" value="%1$s" %2$s/> %3$s</label>',
-				esc_attr( $tag ),
-				checked( in_array( $tag, $selected, true ), true, false ),
-				esc_html( $label )
+				esc_attr($tag),
+				checked(in_array($tag, $selected, true), true, false),
+				esc_html($label)
 			);
 		}
 	}
@@ -213,16 +222,17 @@ class WP_Accessibility_Validator_Admin {
 	 *
 	 * @return array<string>
 	 */
-	public function sanitize_wcag_tags( $value ) {
-		$allowed = array_keys( $this->wcag_options );
+	public function sanitize_wcag_tags($value)
+	{
+		$allowed = array_keys($this->wcag_options);
 
-		if ( ! is_array( $value ) ) {
+		if (! is_array($value)) {
 			return $allowed;
 		}
 
 		$value = array_map(
-			function( $tag ) {
-				return sanitize_key( $tag );
+			function ($tag) {
+				return sanitize_key($tag);
 			},
 			$value
 		);
@@ -234,7 +244,7 @@ class WP_Accessibility_Validator_Admin {
 			)
 		);
 
-		return ! empty( $clean ) ? $clean : $allowed;
+		return ! empty($clean) ? $clean : $allowed;
 	}
 
 	/**
@@ -242,17 +252,18 @@ class WP_Accessibility_Validator_Admin {
 	 *
 	 * @return array<string>
 	 */
-	private function get_selected_wcag_tags() {
-		$stored = get_option( 'wpav_wcag_tags' );
+	private function get_selected_wcag_tags()
+	{
+		$stored = get_option('wpav_wcag_tags');
 
-		if ( ! is_array( $stored ) || empty( $stored ) ) {
-			return array_keys( $this->wcag_options );
+		if (! is_array($stored) || empty($stored)) {
+			return array_keys($this->wcag_options);
 		}
 
 		return array_values(
 			array_intersect(
-				array_keys( $this->wcag_options ),
-				array_map( 'sanitize_key', $stored )
+				array_keys($this->wcag_options),
+				array_map('sanitize_key', $stored)
 			)
 		);
 	}
@@ -262,16 +273,17 @@ class WP_Accessibility_Validator_Admin {
 	 *
 	 * @return array<string, string>
 	 */
-	private function get_wcag_options() {
+	private function get_wcag_options()
+	{
 		return array(
-			'wcag2a'   => __( 'WCAG 2.0 Level A', 'wp-accessibility-validator' ),
-			'wcag2aa'  => __( 'WCAG 2.0 Level AA', 'wp-accessibility-validator' ),
-			'wcag2aaa' => __( 'WCAG 2.0 Level AAA', 'wp-accessibility-validator' ),
-			'wcag21a'  => __( 'WCAG 2.1 Level A', 'wp-accessibility-validator' ),
-			'wcag21aa' => __( 'WCAG 2.1 Level AA', 'wp-accessibility-validator' ),
-			'wcag22aa' => __( 'WCAG 2.2 Level AA', 'wp-accessibility-validator' ),
-			'best-practice' => __( 'Best practices (non-WCAG)', 'wp-accessibility-validator' ),
-			'review-item'   => __( 'Manual review items', 'wp-accessibility-validator' ),
+			'wcag2a'   => __('WCAG 2.0 Level A', 'wp-accessibility-validator'),
+			'wcag2aa'  => __('WCAG 2.0 Level AA', 'wp-accessibility-validator'),
+			'wcag2aaa' => __('WCAG 2.0 Level AAA', 'wp-accessibility-validator'),
+			'wcag21a'  => __('WCAG 2.1 Level A', 'wp-accessibility-validator'),
+			'wcag21aa' => __('WCAG 2.1 Level AA', 'wp-accessibility-validator'),
+			'wcag22aa' => __('WCAG 2.2 Level AA', 'wp-accessibility-validator'),
+			'best-practice' => __('Best practices (non-WCAG)', 'wp-accessibility-validator'),
+			'review-item'   => __('Manual review items', 'wp-accessibility-validator'),
 		);
 	}
 
@@ -283,50 +295,20 @@ class WP_Accessibility_Validator_Admin {
 	 *
 	 * @return string Modified block content with stable IDs.
 	 */
-	public function add_block_stable_id( $block_content, $block ) {
-		// Only add IDs to text content blocks that can have accessibility issues
-		$text_blocks = array( 'core/paragraph', 'core/heading', 'core/list', 'core/quote' );
-
-		if ( ! in_array( $block['blockName'], $text_blocks, true ) ) {
+	public function add_block_stable_id($block_content, $block)
+	{
+		// Only modify content in preview mode
+		if (! is_preview()) {
 			return $block_content;
 		}
 
-		// Use block position/index for stable ID generation (matches JavaScript)
-		// We need to track block position globally since render_block doesn't provide it
-		static $block_index = 0;
-		$stable_id = 'wpav-block-' . $block_index;
-		$block_index++;
+		$processor = new WP_HTML_Tag_Processor($block_content);
 
-		// Debug: Log what we're using
-		error_log( "WPAV PHP: Block {$block['blockName']} at index " . ($block_index - 1) . " -> {$stable_id}" );
-
-		// Add data-wpav-block-id to text elements (p, h1-h6, li, etc.)
-		$dom = new DOMDocument();
-		libxml_use_internal_errors( true ); // Suppress warnings for malformed HTML
-
-		if ( ! $dom->loadHTML( '<div>' . $block_content . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD ) ) {
-			return $block_content;
+		if ($processor->next_tag()) {
+			$generatedId = substr(md5(trim($block['innerHTML'])), 0, 12);
+			$processor->set_attribute('data-wpav-block-id', $generatedId);
 		}
 
-		libxml_clear_errors();
-
-		$xpath = new DOMXPath( $dom );
-		$text_elements = $xpath->query( '//p | //h1 | //h2 | //h3 | //h4 | //h5 | //h6 | //li | //blockquote' );
-
-		foreach ( $text_elements as $element ) {
-			$element->setAttribute( 'data-wpav-block-id', $stable_id );
-		}
-
-		// Extract the modified content
-		$container = $dom->getElementsByTagName( 'div' )->item( 0 );
-		if ( $container ) {
-			$content = '';
-			foreach ( $container->childNodes as $child ) {
-				$content .= $dom->saveHTML( $child );
-			}
-			return $content;
-		}
-
-		return $block_content;
+		return $processor->get_updated_html();
 	}
 }

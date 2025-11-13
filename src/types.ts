@@ -94,6 +94,7 @@ export interface WPBlock {
 	attributes: Record<string, any>;
 	innerBlocks: WPBlock[];
 	isValid?: boolean;
+	originalContent: string;
 }
 
 /**

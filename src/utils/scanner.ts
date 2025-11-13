@@ -22,12 +22,10 @@ import { md5 } from 'js-md5';
  * Uses block index/position for stable identification.
  *
  * @param block - The WordPress block.
- * @param index - The block's position in the editor.
  * @returns A stable identifier for the block.
  */
-const generateBlockStableId = (block: WPBlock, index: number): string => {
-  // Use block position/index for stable ID generation
-  return `wpav-block-${index}`;
+const generateBlockStableId = (block: WPBlock): string => {
+  return md5(block.originalContent).substring(0, 12);
 };
 
 /**
@@ -37,7 +35,9 @@ const generateBlockStableId = (block: WPBlock, index: number): string => {
  * @returns A promise that resolves with scan metrics.
  */
 export const runClientSideScan = async (): Promise<ScanMetrics> => {
-	throw new Error('Client-side block scanning is no longer supported. Use preview scanning instead.');
+  throw new Error(
+    'Client-side block scanning is no longer supported. Use preview scanning instead.'
+  );
 };
 
 export const runPreviewScan = async (
@@ -106,21 +106,6 @@ export const runPreviewScan = async (
       el.getAttribute('data-wpav-block-id')
     );
     console.log('Block IDs found in preview:', previewBlockIds);
-
-    // Debug: Log block IDs from editor
-    const editorBlockIds = blocks.map((block: WPBlock, index: number) =>
-      generateBlockStableId(block, index)
-    );
-    console.log('Block IDs from editor:', editorBlockIds);
-
-    // Debug: Log what we're hashing for each block
-    blocks.forEach((block, index) => {
-      const generatedId = generateBlockStableId(block, index);
-      console.log(`Block ${index} (${block.name}):`, {
-        clientId: block.clientId,
-        generatedId: generatedId,
-      });
-    });
 
     // Inject axe-core into the iframe
     const axeScript = iframeDoc.createElement('script');
@@ -233,54 +218,55 @@ export const runPreviewScan = async (
     // Only include violations that can be mapped to actual editor blocks
     const violationsWithBlockIds = filteredViolations
       .map((violation: any) => {
-        // Find the block ID from the violation's HTML
         let blockId = null;
         for (const node of violation.nodes) {
-          if (node.html) {
-            console.log(
-              'Checking violation node HTML:',
-              node.html.substring(0, 200) + '...'
-            );
+          // Try to get the actual DOM element in the iframe
+          let targetElement: Element | null = null;
+          if (node.target && node.target.length > 0) {
+            try {
+              targetElement = iframeDoc.querySelector(node.target[0]);
+            } catch (e) {
+              // Invalid selector, skip
+            }
+          }
+          if (targetElement) {
+            // Walk up the DOM tree to find the nearest ancestor with data-wpav-block-id
+            let parent: Element | null = targetElement;
+
+            while (parent) {
+              if (
+                parent.hasAttribute &&
+                parent.hasAttribute('data-wpav-block-id')
+              ) {
+                blockId = parent.getAttribute('data-wpav-block-id');
+                break;
+              }
+              parent = parent.parentElement as Element | null;
+            }
+          } else if (node.html) {
+            // Fallback: try to match in the HTML string
             const match = node.html.match(/data-wpav-block-id="([^"]*)"/);
             if (match) {
               blockId = match[1];
-              console.log('Found block ID in violation:', blockId);
-              break;
-            } else {
-              console.log('No data-wpav-block-id found in node HTML');
             }
           }
+          if (blockId) break;
         }
 
         // Only include violations that can be mapped to actual editor blocks
         if (blockId) {
           const matchingBlock = blocks.find(
-            (block: WPBlock, index: number) => generateBlockStableId(block, index) === blockId
+            (block: WPBlock, index: number) =>
+              generateBlockStableId(block) === blockId
           );
-          console.log(blockId, matchingBlock);
           if (matchingBlock) {
-            console.log(
-              'Successfully mapped violation to block:',
-              matchingBlock.name,
-              matchingBlock.clientId
-            );
             return {
               ...violation,
               blockName: matchingBlock.name,
               blockClientId: matchingBlock.clientId,
             };
-          } else {
-            console.log('No matching block found for ID:', blockId);
-            console.log(
-              'Available editor block IDs:',
-              blocks.map((b, i) => generateBlockStableId(b, i))
-            );
           }
-        } else {
-          console.log('No block ID found in violation nodes');
         }
-
-        // Skip violations that can't be mapped to editor blocks
         return null;
       })
       .filter(
