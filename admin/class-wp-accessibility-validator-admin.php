@@ -297,8 +297,26 @@ class WP_Accessibility_Validator_Admin
 	 */
 	public function add_block_stable_id($block_content, $block)
 	{
-		// Only modify content in preview mode
-		if (! is_preview()) {
+		// Only modify content in preview mode. For published posts the usual
+		// preview detection (`is_preview()`) can sometimes be false depending on
+		// how the preview link was generated or rendered. As a safe fallback for
+		// editor previews of published posts, also inject when the current user
+		// is logged in and appears to be viewing a preview (common preview query
+		// vars are checked). This keeps the injection preview-only for editors
+		// while avoiding mutating content for anonymous front-end visitors.
+		$should_inject = is_preview();
+		if (! $should_inject) {
+			global $post;
+			// If the current user can edit the post and query params indicate a preview,
+			// treat this as a preview render.
+			if ( is_user_logged_in() && isset( $post->ID ) && current_user_can( 'edit_post', $post->ID ) ) {
+				if ( isset( $_GET['preview'] ) || isset( $_GET['preview_id'] ) || isset( $_GET['preview_nonce'] ) || isset( $_GET['_wpnonce'] ) ) {
+					$should_inject = true;
+				}
+			}
+		}
+
+		if ( ! $should_inject ) {
 			return $block_content;
 		}
 
