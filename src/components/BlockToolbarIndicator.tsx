@@ -112,12 +112,12 @@ const withBlockToolbarIndicator = createHigherOrderComponent(
 															align="top"
 															key={`${violation.id}-${index}`}
 														>
-															<FlexItem>
-																<Icon
-																	icon={caution}
-																	style={{ fill: impactMeta.color }}
-																/>
-															</FlexItem>
+															<FlexItem style={{ flexShrink: 0 }}>
+																	<Icon
+																		icon={caution}
+																		style={{ fill: impactMeta.color }}
+																	/>
+																</FlexItem>
 															<FlexItem>
 																<Text isBlock>{violation.help}</Text>
 																<Text isBlock variant="muted">
