@@ -44,12 +44,19 @@ jobs:
           # script writes a zip named wp-accessibility-validator-<version>.zip
           # somewhere relative to the plugin dir; find it and move it into dist.
           mkdir -p dist
-          found=$(find $GITHUB_WORKSPACE -type f -name "wp-accessibility-validator-${{ env.VERSION }}.zip" -print -quit || true)
+          # Look for both plain and v-prefixed filenames (package may write
+          # v{version} or {version}). Also tolerate the file already being in
+          # dist/ (avoid mv to same location).
+          found=$(find "$GITHUB_WORKSPACE" -type f \( -name "wp-accessibility-validator-${{ env.VERSION }}.zip" -o -name "wp-accessibility-validator-v${{ env.VERSION }}.zip" \) -print -quit || true)
           if [ -n "$found" ]; then
-            mv "$found" dist/
+            # If the found file is already in the dist directory, do nothing.
+            case "$found" in
+              *"/dist/"*) echo "Packaged zip already in dist: $found" ;; 
+              *) mv "$found" dist/ ;;
+            esac
           else
             echo "Error: packaged zip not found"
-            ls -la $GITHUB_WORKSPACE || true
+            ls -la "$GITHUB_WORKSPACE" || true
             exit 1
           fi
 
