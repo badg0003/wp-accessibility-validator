@@ -8,3 +8,4 @@ export * from './dom';
 export * from './impact';
 export * from './scanner';
 export * from './notices';
+export * from './saveAndPreview';

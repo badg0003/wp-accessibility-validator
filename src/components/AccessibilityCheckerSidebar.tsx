@@ -7,7 +7,8 @@ import {
   createElement,
   createPortal,
   useMemo,
-  useState,
+  useEffect,
+  useRef,
 } from '@wordpress/element';
 import { useSelect } from '@wordpress/data';
 import { serialize } from '@wordpress/blocks';
@@ -32,6 +33,8 @@ import {
   useStoredScan,
   useAccessibilityScan,
   useBlockViolations,
+  useEditorReady,
+  usePreviewUrlWithNonce,
 } from '../hooks';
 import {
   getAvailableWcagLabels,
@@ -54,18 +57,19 @@ export const AccessibilityCheckerSidebar = () => {
     return text || 'All available WCAG guidelines';
   }, [activeWcagTags, wcagLabelMap]);
 
-  // Editor state
-  const { postId, blocks } = useSelect((selectFn) => {
-    const editorStore = selectFn('core/editor') as Partial<WPEditorStore>;
+  // Blocks (content snapshot)
+  const { blocks } = useSelect((selectFn) => {
     const blockStore = selectFn(
       'core/block-editor'
     ) as Partial<WPBlockEditorStore>;
 
     return {
-      postId: editorStore?.getCurrentPostId?.() ?? null,
       blocks: blockStore?.getBlocks?.() ?? [],
     };
   }, []);
+
+  // Editor readiness (post id, save state, etc.)
+  const { postId, isReady: isEditorReady } = useEditorReady();
 
   // Content snapshot for staleness detection
   const contentSnapshot = useMemo(() => serialize(blocks as any), [blocks]);
@@ -76,30 +80,18 @@ export const AccessibilityCheckerSidebar = () => {
   // Scan mode state - now always preview
   const scanMode = 'preview';
 
-  // Get preview URL if available
-  const previewUrl = useSelect((selectFn): string | null => {
-    type EditorStoreWithPreview = Partial<WPEditorStore> & {
-      isSavingPost?: () => boolean;
-      isAutosavingPost?: () => boolean;
-      isCleanNewPost?: () => boolean;
-      getEditedPostPreviewLink?: () => string | null;
-    };
-
-    const editorStore = selectFn('core/editor') as EditorStoreWithPreview;
-
-    const isSaving = editorStore.isSavingPost?.() ?? false;
-    const isAutosaving = editorStore.isAutosavingPost?.() ?? false;
-    const isClean = editorStore.isCleanNewPost?.() ?? false;
-    const link = editorStore.getEditedPostPreviewLink?.() ?? null;
-
-    return !isSaving && !isAutosaving && !isClean ? link : null;
-  }, []);
-
   // Stored scan management
   const { storedScan, isScanStale, persistScan } = useStoredScan(
     postId,
     contentSnapshot
   );
+
+  // Preview URL with nonce
+  const {
+    getFreshPreviewUrl,
+    hasNonce,
+    isReady: isPreviewReady,
+  } = usePreviewUrlWithNonce();
 
   // Scan execution
   const {
@@ -113,8 +105,35 @@ export const AccessibilityCheckerSidebar = () => {
   } = useAccessibilityScan({
     contentSnapshot,
     persistScan,
-    previewUrl,
+    getFreshPreviewUrl,
   });
+
+  // Track whether we've auto-run the scan for this editor session/post
+  const hasAutoRunRef = useRef(false);
+
+  useEffect(() => {
+    // Only auto-run when:
+    // - editor is ready
+    // - preview URL is ready
+    // - we haven't already auto-run
+    // (The actual fresh preview URL is resolved inside handleScanClick)
+    console.log('WPAV auto-run check', {
+      isEditorReady,
+      isPreviewReady,
+    });
+
+    if (!isEditorReady || !isPreviewReady) {
+      return;
+    }
+    if (hasAutoRunRef.current) {
+      return;
+    }
+
+    handleScanClick();
+    hasAutoRunRef.current = true;
+  }, [isEditorReady, isPreviewReady, handleScanClick]);
+
+  const scanDisabled = isScanning || !isEditorReady || !isPreviewReady;
 
   // Load stored scan on mount
   useMemo(() => {
@@ -138,7 +157,7 @@ export const AccessibilityCheckerSidebar = () => {
             label="Run accessibility scan"
             aria-label="Run accessibility scan"
             onClick={handleScanClick}
-            disabled={isScanning}
+            disabled={scanDisabled}
           />,
           headerSlot
         )
@@ -150,7 +169,7 @@ export const AccessibilityCheckerSidebar = () => {
               label="Run accessibility scan"
               aria-label="Run accessibility scan"
               onClick={handleScanClick}
-              disabled={isScanning}
+              disabled={scanDisabled}
             />
             {isScanning && <Spinner />}
           </div>
@@ -173,6 +192,20 @@ export const AccessibilityCheckerSidebar = () => {
           {isScanning && (
             <Notice status="info" isDismissible={false}>
               Running accessibility scan…
+            </Notice>
+          )}
+
+          {!isEditorReady && (
+            <Notice status="info" isDismissible={false}>
+              Preparing editor&hellip; accessibility scan will be available
+              shortly.
+            </Notice>
+          )}
+
+          {isEditorReady && !isPreviewReady && (
+            <Notice status="info" isDismissible={false}>
+              Generating preview link&hellip; run the scan once the preview is
+              ready.
             </Notice>
           )}
 

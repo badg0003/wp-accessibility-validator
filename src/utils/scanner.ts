@@ -144,8 +144,6 @@ export const runPreviewScan = async (
       inapplicable: axeResults.inapplicable.length,
     });
 
-    console.log('ZZZ', axeResults);
-
     // Log color contrast results from all categories
     const colorContrastResults = {
       violations: axeResults.violations.filter(
@@ -181,39 +179,56 @@ export const runPreviewScan = async (
     // Merge violations and incomplete results together
     const allResults = [...axeResults.violations, ...axeResults.incomplete];
 
-    const filteredViolations = allResults.filter((violation: any) => {
-      // Check if any of the violation's target elements are within our block elements
-      for (const targetSelector of violation.nodes
-        .map((node: any) => node.target)
-        .flat()) {
-        try {
-          const targetElements = iframeDoc.querySelectorAll(targetSelector);
-          for (const targetElement of targetElements) {
-            // Check if this target element is within one of our block elements
-            let parent = targetElement;
-            while (parent) {
-              if (
-                parent.hasAttribute &&
-                parent.hasAttribute('data-wpav-block-id')
-              ) {
-                return true; // This violation affects one of our blocks
+    const filteredViolations = allResults
+      .map((violation: any) => {
+        const filteredNodes = violation.nodes.filter((node: any) => {
+          // node.target is an array of selectors
+          const targets = Array.isArray(node.target) ? node.target : [];
+
+          for (const targetSelector of targets) {
+            try {
+              const targetElements = iframeDoc.querySelectorAll(targetSelector);
+
+              for (const targetElement of Array.from(targetElements)) {
+                let parent: Element | null = targetElement;
+
+                while (parent) {
+                  if (
+                    (parent as HTMLElement).hasAttribute &&
+                    (parent as HTMLElement).hasAttribute('data-wpav-block-id')
+                  ) {
+                    // This node is inside one of our blocks
+                    return true;
+                  }
+                  parent = parent.parentElement;
+                }
               }
-              parent = parent.parentElement;
+            } catch (error) {
+              // Invalid selector? Just ignore this targetSelector and move on.
+              continue;
             }
           }
-        } catch (error) {
-          // Skip invalid selectors
-          continue;
-        }
-      }
-      return false; // This violation doesn't affect any of our blocks
-    });
+
+          // None of this node's targets were inside a block
+          return false;
+        });
+
+        // Return a new violation object with only the relevant nodes
+        return {
+          ...violation,
+          nodes: filteredNodes,
+        };
+      })
+      // Only keep violations that still have at least one node
+      .filter((violation) => violation.nodes.length > 0);
+
     console.log(
       'Filtered to',
       filteredViolations.length,
-      'violations affecting our blocks'
+      'violations affecting our blocks',
+      filteredViolations
     );
-    console.log(filteredViolations);
+
     // Map violations back to actual block clientIds based on data-wpav-block-id
     // Only include violations that can be mapped to actual editor blocks
     const violationsWithBlockIds = filteredViolations
@@ -277,48 +292,9 @@ export const runPreviewScan = async (
 
     // Log all violations found (filtered)
     console.log(
-      '=== PREVIEW PAGE ACCESSIBILITY VIOLATIONS (Block Content Only) ==='
+      '=== PREVIEW PAGE ACCESSIBILITY VIOLATIONS (Block Content Only) ===',
+      violationsWithBlockIds
     );
-    violationsWithBlockIds.forEach((violation: any, index: number) => {
-      console.log(`\n--- Violation ${index + 1} ---`);
-      console.log('Rule ID:', violation.id);
-      console.log('Description:', violation.description);
-      console.log('Help:', violation.help);
-      console.log('Impact:', violation.impact);
-      console.log('Help URL:', violation.helpUrl);
-      console.log('Tags:', violation.tags);
-      console.log(
-        'Target selectors:',
-        violation.nodes.map((node: any) => node.target)
-      );
-      console.log('HTML:', violation.nodes[0]?.html);
-      console.log('Failure Summary:', violation.nodes[0]?.failureSummary);
-      console.log('Mapped to block clientId:', violation.blockClientId);
-    });
-
-    // Specifically highlight color contrast issues
-    const colorContrastViolations = violationsWithBlockIds.filter(
-      (v: any) => v.id === 'color-contrast'
-    );
-    if (colorContrastViolations.length > 0) {
-      console.log(
-        `\n=== COLOR CONTRAST VIOLATIONS (${colorContrastViolations.length} found in blocks) ===`
-      );
-      colorContrastViolations.forEach((violation: any, index: number) => {
-        console.log(`Color violation ${index + 1}:`, violation.help);
-        console.log('Element:', violation.nodes[0]?.html);
-        console.log('Selector:', violation.nodes[0]?.target?.[0]);
-        console.log(
-          'Block ID:',
-          violation.nodes[0]?.html?.match(
-            /data-wpav-block-id="([^"]*)"/
-          )?.[1] || 'unknown'
-        );
-        console.log('Block clientId:', violation.blockClientId);
-      });
-    } else {
-      console.log('\n=== NO COLOR CONTRAST VIOLATIONS FOUND IN BLOCKS ===');
-    }
 
     // Clean up
     document.body.removeChild(iframe);
