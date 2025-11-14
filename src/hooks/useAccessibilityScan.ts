@@ -96,6 +96,8 @@ export const useAccessibilityScan = ({
         throw new Error('Could not generate a preview URL for this post.');
       }
 
+	  console.info('Preview URL for accessibility scan:', previewUrl);
+
       const results = await runPreviewScan(previewUrl);
       setScanSummary(results);
       const completedDate = new Date();

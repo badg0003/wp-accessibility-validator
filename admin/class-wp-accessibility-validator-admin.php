@@ -45,6 +45,13 @@ class WP_Accessibility_Validator_Admin
 	private $wcag_options = array();
 
 	/**
+	 * Whether block IDs should be forced for the current render.
+	 *
+	 * @var bool
+	 */
+	private static $force_block_ids = false;
+
+	/**
 	 * Initialize the class and set its properties.
 	 *
 	 * @since    1.0.0
@@ -60,6 +67,7 @@ class WP_Accessibility_Validator_Admin
 		add_action('admin_init', array($this, 'register_settings'));
 		add_filter('block_editor_settings_all', array($this, 'inject_editor_styles'));
 		add_filter('render_block', array($this, 'add_block_stable_id'), 10, 2);
+		add_action('rest_api_init', array($this, 'register_rest_routes'));
 	}
 
 	/**
@@ -79,6 +87,17 @@ class WP_Accessibility_Validator_Admin
 			true
 		);
 
+		// Gather theme / global styles for use in the iframe.
+		$global_styles_css = '';
+		if (function_exists('wp_get_global_stylesheet')) {
+			// Base global styles.
+			$global_styles_css .= wp_get_global_stylesheet();
+			// Presets (colors, typography scale, etc.).
+			$global_styles_css .= wp_get_global_stylesheet(array('presets'));
+		}
+
+		$theme_stylesheet_url = get_stylesheet_uri();
+
 		wp_localize_script(
 			$this->plugin_name,
 			'wpavSettings',
@@ -86,6 +105,9 @@ class WP_Accessibility_Validator_Admin
 				'wcagTags'          => $this->get_selected_wcag_tags(),
 				'availableWcagTags' => $this->wcag_options,
 				'defaultWcagTags'   => array_keys($this->wcag_options),
+				// 🔽 New: front-end style info for the iframe.
+				'themeStylesheetUrl' => $theme_stylesheet_url,
+				'globalStylesCss'    => $global_styles_css,
 			)
 		);
 
@@ -297,26 +319,12 @@ class WP_Accessibility_Validator_Admin
 	 */
 	public function add_block_stable_id($block_content, $block)
 	{
-		// Only modify content in preview mode. For published posts the usual
-		// preview detection (`is_preview()`) can sometimes be false depending on
-		// how the preview link was generated or rendered. As a safe fallback for
-		// editor previews of published posts, also inject when the current user
-		// is logged in and appears to be viewing a preview (common preview query
-		// vars are checked). This keeps the injection preview-only for editors
-		// while avoiding mutating content for anonymous front-end visitors.
-		$should_inject = is_preview();
-		if (! $should_inject) {
-			global $post;
-			// If the current user can edit the post and query params indicate a preview,
-			// treat this as a preview render.
-			if ( is_user_logged_in() && isset( $post->ID ) && current_user_can( 'edit_post', $post->ID ) ) {
-				if ( isset( $_GET['preview'] ) || isset( $_GET['preview_id'] ) || isset( $_GET['preview_nonce'] ) || isset( $_GET['_wpnonce'] ) ) {
-					$should_inject = true;
-				}
-			}
+		// If a scan render explicitly requested IDs, always inject.
+		if (self::$force_block_ids) {
+			$should_inject = true;
 		}
 
-		if ( ! $should_inject ) {
+		if (! $should_inject) {
 			return $block_content;
 		}
 
@@ -328,5 +336,67 @@ class WP_Accessibility_Validator_Admin
 		}
 
 		return $processor->get_updated_html();
+	}
+
+	public function register_rest_routes()
+	{
+		register_rest_route(
+			$this->plugin_name . '/v1',
+			'/render/(?P<id>\d+)',
+			array(
+				'methods'             => 'POST',
+				'permission_callback' => function () {
+					// Only editors/authors etc. should call this.
+					return current_user_can('edit_posts');
+				},
+				'args'                => array(
+					'content' => array(
+						'type'     => 'string',
+						'required' => false,
+					),
+				),
+				'callback'            => function (WP_REST_Request $request) {
+					$post_id  = (int) $request['id'];
+					$content  = $request->get_param('content');
+					$post     = get_post($post_id);
+
+					if (! $post) {
+						return new WP_Error(
+							$this->plugin_name . '_invalid_post',
+							__('Invalid post.', $this->plugin_name),
+							array('status' => 404)
+						);
+					}
+
+					// Use edited content if provided, otherwise fall back to DB.
+					if ($content === null) {
+						$content = $post->post_content;
+					}
+
+					// Simulate the normal loop context so theme filters behave.
+					$GLOBALS['post'] = $post;
+					setup_postdata($post);
+
+					// 🔴 Force block IDs for this render only.
+					self::$force_block_ids = true;
+
+					/**
+					 * the_content hook calls do_blocks() internally, which uses
+					 * parse_blocks() + render_block() to build the HTML.
+					 * See docs for do_blocks/render_block/parse_blocks.
+					 */
+					$html = apply_filters('the_content', $content);
+
+					self::$force_block_ids = false;
+
+					wp_reset_postdata();
+
+					return array(
+						'html' => $html,
+						'post' => $post,
+					);
+				},
+			)
+		);
 	}
 }

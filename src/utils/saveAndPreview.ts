@@ -1,7 +1,7 @@
-/**
- * Post save utilities.
+/****
+ * Post autosave utilities.
  *
- * Provides helpers for saving the current post in the block editor and
+ * Provides helpers for autosaving the current post in the block editor and
  * waiting for save operations to complete before continuing.
  *
  * @package WPAccessibilityValidator
@@ -9,10 +9,10 @@
 import { select, dispatch, subscribe } from '@wordpress/data';
 
 /**
- * Save the current post and wait for the save to complete.
+ * Autosave the current post and wait for the autosave to complete.
  *
  * Uses the core/editor data store to check whether the post is dirty, trigger
- * a save operation when needed, and then waits for both saving and autosaving
+ * a server-side autosave when needed, and then waits for the autosave
  * to complete before resolving. If there are no changes, the function resolves
  * immediately without performing any save.
  *
@@ -33,33 +33,17 @@ export async function savePostAndWait(): Promise<void> {
     return;
   }
 
-  // Trigger a save (will choose autosave/draft/publish as appropriate).
-  editorDispatch.savePost();
+  // Trigger a server-side autosave (used by the editor for preview).
+  editorDispatch.autosave?.({ local: false });
 
-  // Wait until saving and autosaving are both done, with a safety timeout.
-  await new Promise<void>((resolve, reject) => {
-    const unsubscribe = subscribe(() => {
-      const isSaving = editorSelect?.isSavingPost?.();
-      const isAutosaving = editorSelect?.isAutosavingPost?.();
+  const unsubscribe = subscribe(() => {
+    const isSaving = editorSelect.isSavingPost();
+    const isAutosaving = editorSelect.isAutosavingPost();
 
-      if (!isSaving && !isAutosaving) {
-        clearTimeout(timeoutId);
-        unsubscribe();
-        resolve();
-      }
-    });
-
-    const timeoutId = setTimeout(() => {
+    if (!isSaving && !isAutosaving) {
+      const previewUrl = editorSelect.getEditedPostPreviewLink();
+      console.log(previewUrl);
       unsubscribe();
-      // eslint-disable-next-line no-console
-      console.warn(
-        'savePostAndWait: timed out waiting for post save to complete.'
-      );
-      reject(
-        new Error(
-          'Timed out waiting for the post save operation to complete.'
-        )
-      );
-    }, 30000);
+    }
   });
 }

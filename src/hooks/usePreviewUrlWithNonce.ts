@@ -2,14 +2,14 @@
  * Preview URL hook.
  *
  * Provides a React hook for working with the post preview URL in the block
- * editor, including a helper for generating a fresh preview URL on demand.
- * The hook derives its data from the core/editor data store.
+ * editor. The hook uses the preview URL provided by WordPress core and
+ * exposes readiness flags plus a helper for retrieving the latest URL on
+ * demand.
  *
  * @package WPAccessibilityValidator
  */
-import { useCallback } from '@wordpress/element';
+import { useCallback, useMemo } from '@wordpress/element';
 import { useSelect } from '@wordpress/data';
-import { addQueryArgs } from '@wordpress/url';
 
 /**
  * Result shape for the preview URL hook.
@@ -27,8 +27,8 @@ import { addQueryArgs } from '@wordpress/url';
  *
  * Exposes readiness flags and a helper for generating a fresh preview URL
  * for the current post. The preview URL is derived from the editor's
- * `currentPost.preview_link` (falling back to `currentPost.link`) and is
- * augmented with preview query arguments and a cache-busting token.
+ * `getEditedPostPreviewLink()` (falling back to `currentPost.preview_link` and `currentPost.link`) and is
+ * used exactly as WordPress provides it.
  *
  * @since 1.0.0
  *
@@ -39,56 +39,51 @@ export const usePreviewUrlWithNonce = () => {
     const editor = selectFn('core/editor');
 
     const currentPost = editor.getCurrentPost?.() ?? {};
-    const link = currentPost.preview_link || currentPost.link;
+    const editedPreviewLink = editor.getEditedPostPreviewLink?.();
+
+    const link =
+      editedPreviewLink || currentPost.preview_link || currentPost.link || null;
 
     return {
-      postId: editor.getCurrentPostId?.(),
-      postType: editor.getCurrentPostType?.(),
+      postId: editor.getCurrentPostId?.() ?? null,
+      postType: editor.getCurrentPostType?.() ?? null,
       previewLink: link,
     };
   }, []);
 
   const isReady = !!postId && !!previewLink;
 
+  const hasNonce = useMemo(() => {
+    if (!previewLink || typeof previewLink !== 'string') {
+      return false;
+    }
+
+    // Cheap check to see if WordPress has included a preview nonce parameter.
+    return previewLink.includes('preview_nonce=');
+  }, [previewLink]);
+
   /**
-   * Build a fresh preview URL for the current post.
+   * Retrieve the latest preview URL for the current post.
    *
-   * The URL is based on the editor-provided preview link and is augmented
-   * with query arguments to ensure preview mode and to avoid stale responses
-   * via a simple cache-busting parameter.
+   * The URL is taken directly from WordPress core (via the editor data store)
+   * without adding custom query parameters. If a preview URL is not currently
+   * available, null is returned.
    *
    * @since 1.0.0
    *
-   * @return {?string} The computed preview URL, or null if it cannot be built.
+   * @return {?string} The current preview URL, or null if it cannot be built.
    */
   const getFreshPreviewUrl = useCallback(() => {
     if (!postId || !previewLink) {
       return null;
     }
 
-    // Start from whatever WP gave us as the preview link
-    let url = previewLink;
-
-    // Ensure it's actually treated as a preview, and add a cache-buster
-    url = addQueryArgs(url, {
-      preview: 'true',
-      preview_id: postId,
-      // cheap cache buster so the iframe doesn't reuse an old response
-      _wpav_scan: Date.now(),
-    });
-
-    // If you later add your PHP REST route that returns
-    // wp_create_nonce( 'post_preview_' . $post_id ),
-    // you can inject it here as `_wpnonce`.
-    //
-    // url = addQueryArgs(url, { _wpnonce: previewNonceFromRest });
-
-    return url;
+    return previewLink;
   }, [postId, previewLink]);
 
   return {
     isReady,
-    hasNonce: true, // or real check once you wire up a REST nonce
+    hasNonce,
     getFreshPreviewUrl,
   };
 };

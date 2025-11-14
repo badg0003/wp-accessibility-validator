@@ -18,15 +18,37 @@ import type {
   WPBlockEditorStore,
 } from '../types';
 import { getConfiguredWcagTags } from './wcag';
+import {
+  createScanIframe,
+  buildScanDocumentHtml,
+  waitForIframeLoad,
+} from './previewDom';
 import { md5 } from 'js-md5';
+import apiFetch from '@wordpress/api-fetch';
+
+type RenderResponse = {
+  html: string;
+};
 
 /**
- * Generates a stable ID for a block that can be used to correlate
- * blocks between the editor and rendered preview.
+ * Shape of the axe-core result object we care about.
  *
- * Uses a hash of the block's original content to derive a deterministic
- * identifier that is stable across editor and preview renders for the
- * same content.
+ * We intentionally keep this loose (`any`-based) to avoid pulling in
+ * the full axe-core type surface, while still documenting the structure
+ * this module expects.
+ */
+type AxeResult = {
+  violations: any[];
+  incomplete: any[];
+};
+
+/**
+ * Generates a stable ID for a block that can be used to correlate blocks
+ * between the editor and rendered preview.
+ *
+ * The returned value is the first 12 characters of an MD5 hash of the
+ * block's original content, and is expected to match the server-side
+ * ID used in the `data-wpav-block-id` attribute.
  *
  * @since 1.0.0
  *
@@ -35,6 +57,49 @@ import { md5 } from 'js-md5';
  */
 const generateBlockStableId = (block: WPBlock): string => {
   return md5(block.originalContent).substring(0, 12);
+};
+
+/**
+ * Recursively flattens a tree of blocks into a single array of blocks.
+ *
+ * This allows violations to be mapped back to any nested inner block,
+ * not just top-level blocks in the editor.
+ *
+ * @since 1.0.0
+ *
+ * @param {WPBlock[]} blocksToFlatten Blocks to flatten.
+ * @return {WPBlock[]} All blocks, including nested inner blocks.
+ */
+const flattenBlocks = (blocksToFlatten: WPBlock[]): WPBlock[] => {
+  const all: WPBlock[] = [];
+
+  for (const block of blocksToFlatten) {
+    all.push(block);
+
+    if (Array.isArray((block as any).innerBlocks) && block.innerBlocks.length) {
+      all.push(...flattenBlocks(block.innerBlocks as WPBlock[]));
+    }
+  }
+
+  return all;
+};
+
+/**
+ * Injects axe-core into the iframe and resolves when it is available.
+ *
+ * @since 1.0.0
+ *
+ * @param {Document} iframeDoc Document of the scan iframe.
+ * @return {Promise<void>} Resolves once axe-core has loaded.
+ */
+const loadAxeIntoIframe = async (iframeDoc: Document): Promise<void> => {
+  const axeScript = iframeDoc.createElement('script');
+  axeScript.src = 'https://cdn.jsdelivr.net/npm/axe-core@4.9.1/axe.min.js';
+  iframeDoc.head.appendChild(axeScript);
+
+  await new Promise<void>((resolve) => {
+    axeScript.onload = () => resolve();
+  });
 };
 
 /**
@@ -77,53 +142,64 @@ export const runPreviewScan = async (
     throw new Error('Preview scanning is only available in a browser context.');
   }
 
-  // Get current editor blocks for ID comparison
+  const { themeStylesheetUrl, globalStylesCss } =
+    (window as any).wpavSettings || {};
+
   const blockStore = select('core/block-editor') as Partial<WPBlockEditorStore>;
-  const blocks = blockStore?.getBlocks?.() ?? [];
+  const rootBlocks = blockStore?.getBlocks?.() ?? [];
+
+  const blocks = flattenBlocks(rootBlocks);
+
+  const editorStore = select('core/editor') as any;
+  const postId = editorStore?.getCurrentPostId?.();
+  const content = editorStore?.getEditedPostAttribute?.('content');
+
+  if (!postId) {
+    throw new Error(
+      'Cannot run preview scan: no current post ID is available.'
+    );
+  }
+
+  if (typeof content !== 'string') {
+    throw new Error('Cannot run preview scan: post content is not available.');
+  }
 
   // Track iframe so it can always be cleaned up in a finally block.
   let iframe: HTMLIFrameElement | null = null;
 
   try {
-    // Create iframe to load preview page
-    iframe = document.createElement('iframe');
-    iframe.style.position = 'absolute';
-    iframe.style.left = '-10000px';
-    iframe.style.top = 'auto';
-    iframe.style.width = '1200px'; // Give it width for proper rendering
-    iframe.style.height = '800px'; // Give it height for proper rendering
-    iframe.style.overflow = 'hidden';
-    iframe.style.border = 'none';
-    iframe.src = previewUrl;
-
+    iframe = createScanIframe();
+    // Attach iframe to the DOM so load events and scripts behave consistently.
     document.body.appendChild(iframe);
 
-    // Wait for iframe to load
-    await new Promise<void>((resolve, reject) => {
-      if (!iframe) {
-        reject(new Error('Failed to create preview iframe'));
-        return;
-      }
+    let response: RenderResponse;
 
-      const timeoutId = window.setTimeout(() => {
-        if (iframe) {
-          iframe.onload = null;
-          iframe.onerror = null;
-        }
-        reject(new Error('Preview page load timeout'));
-      }, 15000);
+    try {
+      response = (await apiFetch({
+        path: `/wp-accessibility-validator/v1/render/${postId}`,
+        method: 'POST',
+        data: { content },
+      })) as RenderResponse;
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('A11y render request failed', error);
+      throw new Error('Failed to render preview HTML for accessibility scan.');
+    }
 
-      iframe.onload = () => {
-        clearTimeout(timeoutId);
-        resolve();
-      };
+    if (!iframe) {
+      throw new Error('Failed to create preview iframe');
+    }
 
-      iframe.onerror = (e) => {
-        clearTimeout(timeoutId);
-        console.error('Preview iframe failed to load:', e);
-        reject(new Error('Failed to load preview page'));
-      };
+    const docHtml = buildScanDocumentHtml({
+      html: response.html,
+      lang: document.documentElement.lang || 'en',
+      themeStylesheetUrl,
+      globalStylesCss,
     });
+
+    iframe.srcdoc = docHtml;
+
+    await waitForIframeLoad(iframe);
 
     // Check if we can access the iframe content
     let iframeDoc: Document;
@@ -147,17 +223,10 @@ export const runPreviewScan = async (
     // Check if the iframe content has our block IDs
     const blockElements = iframeDoc.querySelectorAll('[data-wpav-block-id]');
 
-    // Inject axe-core into the iframe
-    const axeScript = iframeDoc.createElement('script');
-    axeScript.src = 'https://cdn.jsdelivr.net/npm/axe-core@4.9.1/axe.min.js';
-    iframeDoc.head.appendChild(axeScript);
+    // Inject axe-core into the iframe and wait for it to be ready.
+    await loadAxeIntoIframe(iframeDoc);
 
-    // Wait for axe to load
-    await new Promise<void>((resolve) => {
-      axeScript.onload = () => resolve();
-    });
-
-    // Run axe-core on the iframe document
+    // Run axe-core on the iframe document with the configured tags.
     const wcagTags = getConfiguredWcagTags();
     const runOptions: RunOptions = {
       resultTypes: ['violations', 'incomplete'],
@@ -180,116 +249,153 @@ export const runPreviewScan = async (
       throw new Error('Failed to load axe-core in iframe');
     }
 
-    const axeResults = await iframeAxe.run(iframeDoc, runOptions);
+    const axeResults = (await iframeAxe.run(
+      iframeDoc,
+      runOptions
+    )) as AxeResult;
 
     // Merge violations and incomplete results together
     const allResults = [...axeResults.violations, ...axeResults.incomplete];
 
+    // Debug: full set of raw axe results before filtering.
+    // eslint-disable-next-line no-console
+    console.log('WPAV axe raw results:', allResults);
+
     const filteredViolations = allResults
       .map((violation: any) => {
-        const filteredNodes = violation.nodes.filter((node: any) => {
-          // node.target is an array of selectors
-          const targets = Array.isArray(node.target) ? node.target : [];
-
-          for (const targetSelector of targets) {
-            try {
-              const targetElements = iframeDoc.querySelectorAll(targetSelector);
-
-              for (const targetElement of Array.from(targetElements)) {
-                let parent: Element | null = targetElement;
-
-                while (parent) {
-                  if (
-                    (parent as HTMLElement).hasAttribute &&
-                    (parent as HTMLElement).hasAttribute('data-wpav-block-id')
-                  ) {
-                    // This node is inside one of our blocks
-                    return true;
-                  }
-                  parent = parent.parentElement;
-                }
-              }
-            } catch (error) {
-              // Invalid selector? Just ignore this targetSelector and move on.
-              continue;
+        const filteredNodes = violation.nodes.filter(
+          (node: any, idx: number) => {
+            // 1. Fast path: if the node HTML already contains a block id, keep it.
+            if (
+              typeof node.html === 'string' &&
+              /data-wpav-block-id="[^"]+"/.test(node.html)
+            ) {
+              return true;
             }
+
+            // 2. Fallback: use node.target selectors + DOM lookup.
+            const targets = Array.isArray(node.target) ? node.target : [];
+
+            for (const targetSelector of targets) {
+              try {
+                const targetElements =
+                  iframeDoc.querySelectorAll(targetSelector);
+
+                for (const targetElement of Array.from(targetElements)) {
+                  let parent: Element | null = targetElement;
+
+                  while (parent) {
+                    if (
+                      (parent as HTMLElement).hasAttribute &&
+                      (parent as HTMLElement).hasAttribute('data-wpav-block-id')
+                    ) {
+                      return true; // inside one of our blocks
+                    }
+                    parent = parent.parentElement;
+                  }
+                }
+              } catch {
+                // Invalid selector? Just move on to the next one.
+                continue;
+              }
+            }
+
+            // None of this node's targets were inside a block
+            return false;
           }
+        );
 
-          // None of this node's targets were inside a block
-          return false;
-        });
-
-        // Return a new violation object with only the relevant nodes
         return {
           ...violation,
           nodes: filteredNodes,
         };
       })
-      // Only keep violations that still have at least one node
       .filter((violation) => violation.nodes.length > 0);
 
-    // Map violations back to actual block clientIds based on data-wpav-block-id
-    // Only include violations that can be mapped to actual editor blocks
-    const violationsWithBlockIds = filteredViolations
-      .map((violation: any) => {
-        let blockId = null;
-        for (const node of violation.nodes) {
-          // Try to get the actual DOM element in the iframe
-          let targetElement: Element | null = null;
-          if (node.target && node.target.length > 0) {
-            try {
-              targetElement = iframeDoc.querySelector(node.target[0]);
-            } catch (e) {
-              // Invalid selector, skip
-            }
-          }
-          if (targetElement) {
-            // Walk up the DOM tree to find the nearest ancestor with data-wpav-block-id
-            let parent: Element | null = targetElement;
+    // Map violations back to actual block clientIds based on data-wpav-block-id.
+    // Some axe violations can have multiple nodes that live in different blocks,
+    // so we expand each violation into one entry per (block, node) pair.
+    const violationsWithBlockIds = filteredViolations.flatMap(
+      (violation: any) => {
+        const nodeEntries = violation.nodes.map((node: any) => {
+          let blockId: string | null = null;
 
-            while (parent) {
-              if (
-                parent.hasAttribute &&
-                parent.hasAttribute('data-wpav-block-id')
-              ) {
-                blockId = parent.getAttribute('data-wpav-block-id');
+          // Try to resolve the block id using the node's targets in the iframe DOM.
+          const targets = Array.isArray(node.target) ? node.target : [];
+
+          for (const selector of targets) {
+            let elements: NodeListOf<Element>;
+            try {
+              elements = iframeDoc.querySelectorAll(selector);
+            } catch {
+              // Bad selector, skip to the next one.
+              continue;
+            }
+
+            for (const el of Array.from(elements)) {
+              let parent: Element | null = el;
+
+              while (parent) {
+                const parentEl = parent as HTMLElement;
+                if (
+                  parentEl.hasAttribute &&
+                  parentEl.hasAttribute('data-wpav-block-id')
+                ) {
+                  blockId = parentEl.getAttribute('data-wpav-block-id');
+                  break;
+                }
+                parent = parent.parentElement;
+              }
+
+              if (blockId) {
                 break;
               }
-              parent = parent.parentElement as Element | null;
             }
-          } else if (node.html) {
-            // Fallback: try to match in the HTML string
-            const match = node.html.match(/data-wpav-block-id="([^"]*)"/);
+
+            if (blockId) {
+              break;
+            }
+          }
+
+          // Fallback: extract the block id directly from the node HTML snippet.
+          if (!blockId && typeof node.html === 'string') {
+            const match = node.html.match(/data-wpav-block-id="([^\"]*)"/);
             if (match) {
               blockId = match[1];
             }
           }
-          if (blockId) break;
-        }
 
-        // Only include violations that can be mapped to actual editor blocks
-        if (blockId) {
-          const matchingBlock = blocks.find(
-            (block: WPBlock, index: number) =>
-              generateBlockStableId(block) === blockId
-          );
-          if (matchingBlock) {
-            return {
-              ...violation,
-              blockName: matchingBlock.name,
-              blockClientId: matchingBlock.clientId,
-            };
+          if (!blockId) {
+            return null;
           }
-        }
-        return null;
-      })
-      .filter(
-        (
-          violation: ViolationWithContext | null
-        ): violation is ViolationWithContext => violation !== null
-      );
 
-    // Return scan metrics (using mapped violations)
+          const matchingBlock = blocks.find(
+            (block: WPBlock) => generateBlockStableId(block) === blockId
+          );
+
+          if (!matchingBlock) {
+            return null;
+          }
+
+          // Return a violation instance scoped to this block and node.
+          const scopedViolation: ViolationWithContext = {
+            ...violation,
+            nodes: [node],
+            blockName: matchingBlock.name,
+            blockClientId: matchingBlock.clientId,
+          };
+
+          return scopedViolation;
+        });
+
+        return nodeEntries.filter(
+          (entry: ViolationWithContext | null): entry is ViolationWithContext =>
+            entry !== null
+        );
+      }
+    );
+
+    // Build and return scan metrics summarizing the mapped violations.
     return {
       totalBlocks: blockElements.length,
       scannedBlocks: blockElements.length,

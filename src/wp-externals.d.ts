@@ -30,6 +30,7 @@ declare module '@wordpress/editor' {
   >;
   export const PluginPostStatusInfo: ComponentType<Record<string, unknown>>;
   export const PluginPrePublishPanel: ComponentType<Record<string, unknown>>;
+  export const store: unknown;
 }
 
 declare module '@wordpress/block-editor' {
@@ -41,4 +42,12 @@ declare module '@wordpress/block-editor' {
   }
 
   export const BlockControls: ComponentType<BlockControlsProps>;
+}
+
+declare module '@wordpress/editor/store/selectors' {
+  // Minimal selector surface you need right now. Extend as required.
+  export function getCurrentPostId(): number | string | null;
+  export function getEditedPostAttribute<T = unknown>(
+    attribute: string
+  ): T;
 }
