@@ -11,6 +11,9 @@ jobs:
     env:
       # github.ref looks like refs/tags/vX.Y.Z — github.ref_name is the short tag
       VERSION: ${{ github.ref_name }}
+      # Path to plugin directory inside the repository. Set to '.' when the
+      # plugin is at the repository root. Override if plugin lives elsewhere.
+      PLUGIN_DIR: '.'
 
     steps:
       - name: Checkout
@@ -25,28 +28,38 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd wp-content/plugins/wp-accessibility-validator
+          cd ${{ env.PLUGIN_DIR }}
           npm ci
 
       - name: Build assets
         run: |
-          cd wp-content/plugins/wp-accessibility-validator
+          cd ${{ env.PLUGIN_DIR }}
           npm run build
 
       - name: Package plugin
         run: |
-          cd wp-content/plugins/wp-accessibility-validator
-          npm run package
-          # move the generated zip to a known location for upload
+          cd ${{ env.PLUGIN_DIR }}
+          npm run package || true
+          # move the generated zip to a known location for upload. The package
+          # script writes a zip named wp-accessibility-validator-<version>.zip
+          # somewhere relative to the plugin dir; find it and move it into dist.
           mkdir -p dist
-          mv ../wp-accessibility-validator-${{ env.VERSION }}.zip dist/
+          found=$(find $GITHUB_WORKSPACE -type f -name "wp-accessibility-validator-${{ env.VERSION }}.zip" -print -quit || true)
+          if [ -n "$found" ]; then
+            mv "$found" dist/
+          else
+            echo "Error: packaged zip not found"
+            ls -la $GITHUB_WORKSPACE || true
+            exit 1
+          fi
 
       - name: Generate release notes
         id: gen_notes
         run: |
           set -e
-          cd wp-content/plugins/wp-accessibility-validator/../../..
-          node wp-content/plugins/wp-accessibility-validator/scripts/generate-release-notes.js > release_notes.txt
+          # Run the release notes generator script from the repository root so
+          # git commands inside it run against the checked-out repo.
+          node ${{ github.workspace }}/${{ env.PLUGIN_DIR }}/scripts/generate-release-notes.js > release_notes.txt
           echo "notes<<EOF" >> $GITHUB_OUTPUT
           cat release_notes.txt >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
