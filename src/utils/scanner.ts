@@ -8,7 +8,6 @@
  * @package WPAccessibilityValidator
  */
 
-import axe from 'axe-core';
 import type { RunOptions } from 'axe-core';
 import { select } from '@wordpress/data';
 
