@@ -46,13 +46,7 @@ jobs:
         run: |
           set -e
           cd wp-content/plugins/wp-accessibility-validator/../../..
-          # Try to find previous tag; if none, include all commits
-          PREV_TAG=$(git describe --tags --abbrev=0 ${GITHUB_REF}^ 2>/dev/null || true)
-          if [ -n "$PREV_TAG" ]; then
-            git log --pretty=format:"- %s (%h)" "$PREV_TAG"..HEAD > release_notes.txt || true
-          else
-            git log --pretty=format:"- %s (%h)" HEAD > release_notes.txt || true
-          fi
+          node wp-content/plugins/wp-accessibility-validator/scripts/generate-release-notes.js > release_notes.txt
           echo "notes<<EOF" >> $GITHUB_OUTPUT
           cat release_notes.txt >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
