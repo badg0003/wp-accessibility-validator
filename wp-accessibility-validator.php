@@ -14,13 +14,16 @@ if (! defined('WPINC')) {
 	die;
 }
 
-define('WPAV_VERSION', '2.0.1');
+if (! defined('WPAV_VERSION')) {
+	define('WPAV_VERSION', '2.0.7');
+}
 
 /**
  * The core plugin class.
  */
-final class WP_Accessibility_Validator
-{
+if (! class_exists('WP_Accessibility_Validator')) {
+	final class WP_Accessibility_Validator
+	{
 
 	/**
 	 * The single instance of the class.
@@ -62,15 +65,20 @@ final class WP_Accessibility_Validator
 	{
 		new WP_Accessibility_Validator_Admin();
 	}
+	}
 }
 
 /**
  * Main instance of plugin.
  */
-function wp_accessibility_validator()
-{
-	return WP_Accessibility_Validator::instance();
+if (! function_exists('wp_accessibility_validator')) {
+	function wp_accessibility_validator()
+	{
+		return WP_Accessibility_Validator::instance();
+	}
 }
 
 // Global for backwards compatibility.
-$GLOBALS['wp_accessibility_validator'] = wp_accessibility_validator();
+if (! isset($GLOBALS['wp_accessibility_validator'])) {
+	$GLOBALS['wp_accessibility_validator'] = wp_accessibility_validator();
+}
