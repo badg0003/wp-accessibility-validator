@@ -65,6 +65,7 @@ jobs:
         with:
           tag_name: ${{ env.VERSION }}
           release_name: Release ${{ env.VERSION }}
+          body: ${{ steps.gen_notes.outputs.notes }}
           draft: false
           prerelease: false
 
