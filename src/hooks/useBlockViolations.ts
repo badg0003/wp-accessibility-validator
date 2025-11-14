@@ -1,4 +1,13 @@
 /**
+ * Block violations hook.
+ *
+ * Groups accessibility scan violations by block and syncs summary information
+ * into the plugin data store for use by other UI components.
+ *
+ * @package WPAccessibilityValidator
+ */
+
+/**
  * Custom hook for tracking block violations.
  */
 
@@ -8,14 +17,44 @@ import type { ScanMetrics, ViolationWithContext } from '../types';
 import { STORE_NAME } from '../constants';
 
 /**
- * Processes scan results to group violations by block.
+ * Result shape for the block violations hook.
  *
- * @param scanSummary - The scan results.
- * @returns Grouped violation data.
+ * @typedef {Object} UseBlockViolationsResult
+ * @property {Array}  violationsByBlock      Array of grouped violations keyed by block.
+ * @property {Object} blockViolationTotals   Map of block client ID to total violation count.
+ * @property {Object} blockViolationDetails  Map of block client ID to detailed violation list.
  */
-export const useBlockViolations = (scanSummary: ScanMetrics | null) => {
+interface BlockViolationGroup {
+  key: string;
+  label: string;
+  violations: ViolationWithContext[];
+}
+
+interface UseBlockViolationsResult {
+  violationsByBlock: BlockViolationGroup[];
+  blockViolationTotals: Record<string, number>;
+  blockViolationDetails: Record<string, ViolationWithContext[]>;
+}
+
+/**
+ * Hook for deriving and tracking block-level violations.
+ *
+ * Groups violations by block for display and calculates per-block totals
+ * and details. When the grouped data changes, it is synchronized to the
+ * plugin's custom data store so other components can consume it.
+ *
+ * @since 1.0.0
+ *
+ * @param {ScanMetrics|null} scanSummary Scan results for the current run,
+ *                                       or null if no scan has been performed.
+ * @return {UseBlockViolationsResult} Grouped violation data and maps keyed
+ *                                    by block client ID.
+ */
+export const useBlockViolations = (
+  scanSummary: ScanMetrics | null
+): UseBlockViolationsResult => {
 	// Group violations by block for display
-	const violationsByBlock = useMemo(() => {
+	const violationsByBlock = useMemo<BlockViolationGroup[]>(() => {
 		if (!scanSummary) {
 			return [];
 		}

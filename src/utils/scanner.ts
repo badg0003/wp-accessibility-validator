@@ -1,5 +1,11 @@
 /**
  * Accessibility scanner using axe-core.
+ *
+ * Provides utilities for running accessibility scans against the rendered
+ * preview of the current post using axe-core, and mapping the resulting
+ * violations back to individual blocks in the editor.
+ *
+ * @package WPAccessibilityValidator
  */
 
 import axe from 'axe-core';
@@ -19,10 +25,14 @@ import { md5 } from 'js-md5';
  * Generates a stable ID for a block that can be used to correlate
  * blocks between the editor and rendered preview.
  *
- * Uses block index/position for stable identification.
+ * Uses a hash of the block's original content to derive a deterministic
+ * identifier that is stable across editor and preview renders for the
+ * same content.
  *
- * @param block - The WordPress block.
- * @returns A stable identifier for the block.
+ * @since 1.0.0
+ *
+ * @param {WPBlock} block The WordPress block.
+ * @return {string} A stable identifier for the block.
  */
 const generateBlockStableId = (block: WPBlock): string => {
   return md5(block.originalContent).substring(0, 12);
@@ -31,8 +41,13 @@ const generateBlockStableId = (block: WPBlock): string => {
 /**
  * Runs a client-side accessibility scan on all blocks in the editor.
  *
- * @deprecated Use runPreviewScan instead for more accurate results
- * @returns A promise that resolves with scan metrics.
+ * This function is retained for backwards compatibility but is no longer
+ * supported. It will always throw an error when called.
+ *
+ * @since 1.0.0
+ * @deprecated Use {@link runPreviewScan} instead for more accurate results.
+ *
+ * @return {Promise<ScanMetrics>} A promise that always rejects.
  */
 export const runClientSideScan = async (): Promise<ScanMetrics> => {
   throw new Error(
@@ -40,21 +55,39 @@ export const runClientSideScan = async (): Promise<ScanMetrics> => {
   );
 };
 
+/**
+ * Runs an accessibility scan against the rendered preview page.
+ *
+ * Loads the post preview into an off-screen iframe, injects axe-core,
+ * filters the resulting violations to those that affect blocks tagged
+ * with `data-wpav-block-id`, and maps violations back to editor blocks.
+ *
+ * @since 1.0.0
+ *
+ * @param {string} previewUrl The URL of the preview page to scan.
+ * @return {Promise<ScanMetrics>} A promise that resolves with scan metrics.
+ *
+ * @throws {Error} If the preview cannot be loaded, the iframe cannot be
+ *                 accessed due to CORS, axe-core fails to load, or the
+ *                 scan process encounters an unexpected error.
+ */
 export const runPreviewScan = async (
   previewUrl: string
 ): Promise<ScanMetrics> => {
+  if (typeof document === 'undefined') {
+    throw new Error('Preview scanning is only available in a browser context.');
+  }
+
   // Get current editor blocks for ID comparison
   const blockStore = select('core/block-editor') as Partial<WPBlockEditorStore>;
   const blocks = blockStore?.getBlocks?.() ?? [];
 
-  console.log('Starting preview page scan...', {
-    previewUrl,
-    blockCount: blocks.length,
-  });
+  // Track iframe so it can always be cleaned up in a finally block.
+  let iframe: HTMLIFrameElement | null = null;
 
   try {
     // Create iframe to load preview page
-    const iframe = document.createElement('iframe');
+    iframe = document.createElement('iframe');
     iframe.style.position = 'absolute';
     iframe.style.left = '-10000px';
     iframe.style.top = 'auto';
@@ -68,30 +101,45 @@ export const runPreviewScan = async (
 
     // Wait for iframe to load
     await new Promise<void>((resolve, reject) => {
+      if (!iframe) {
+        reject(new Error('Failed to create preview iframe'));
+        return;
+      }
+
+      const timeoutId = window.setTimeout(() => {
+        if (iframe) {
+          iframe.onload = null;
+          iframe.onerror = null;
+        }
+        reject(new Error('Preview page load timeout'));
+      }, 15000);
+
       iframe.onload = () => {
-        console.log('Preview iframe loaded successfully');
+        clearTimeout(timeoutId);
         resolve();
       };
+
       iframe.onerror = (e) => {
+        clearTimeout(timeoutId);
         console.error('Preview iframe failed to load:', e);
         reject(new Error('Failed to load preview page'));
       };
-      // Timeout after 15 seconds
-      setTimeout(() => reject(new Error('Preview page load timeout')), 15000);
     });
 
     // Check if we can access the iframe content
     let iframeDoc: Document;
     try {
+      if (!iframe) {
+        throw new Error('Preview iframe is not available');
+      }
+
       iframeDoc =
         iframe.contentDocument || (iframe.contentWindow as any)?.document;
       if (!iframeDoc) {
         throw new Error('Cannot access iframe document');
       }
-      console.log('Successfully accessed iframe document');
     } catch (error) {
       console.error('Cannot access iframe content, likely CORS issue:', error);
-      document.body.removeChild(iframe);
       throw new Error(
         'Cannot access preview page content due to CORS restrictions'
       );
@@ -99,13 +147,6 @@ export const runPreviewScan = async (
 
     // Check if the iframe content has our block IDs
     const blockElements = iframeDoc.querySelectorAll('[data-wpav-block-id]');
-    console.log('Found block elements in iframe:', blockElements.length);
-
-    // Debug: Log all block IDs found in preview
-    const previewBlockIds = Array.from(blockElements).map((el: Element) =>
-      el.getAttribute('data-wpav-block-id')
-    );
-    console.log('Block IDs found in preview:', previewBlockIds);
 
     // Inject axe-core into the iframe
     const axeScript = iframeDoc.createElement('script');
@@ -131,50 +172,16 @@ export const runPreviewScan = async (
     }
 
     // Access axe from the iframe context
+    if (!iframe || !iframe.contentWindow) {
+      throw new Error('Preview iframe window is not available');
+    }
+
     const iframeAxe = (iframe.contentWindow as any).axe;
     if (!iframeAxe) {
       throw new Error('Failed to load axe-core in iframe');
     }
 
     const axeResults = await iframeAxe.run(iframeDoc, runOptions);
-    console.log('Axe-core results:', {
-      violations: axeResults.violations.length,
-      passes: axeResults.passes.length,
-      incomplete: axeResults.incomplete.length,
-      inapplicable: axeResults.inapplicable.length,
-    });
-
-    // Log color contrast results from all categories
-    const colorContrastResults = {
-      violations: axeResults.violations.filter(
-        (v: any) => v.id === 'color-contrast'
-      ),
-      passes: axeResults.passes.filter((p: any) => p.id === 'color-contrast'),
-      incomplete: axeResults.incomplete.filter(
-        (i: any) => i.id === 'color-contrast'
-      ),
-      inapplicable: axeResults.inapplicable.filter(
-        (ia: any) => ia.id === 'color-contrast'
-      ),
-    };
-
-    console.log('Color contrast results:', {
-      violations: colorContrastResults.violations.length,
-      passes: colorContrastResults.passes.length,
-      incomplete: colorContrastResults.incomplete.length,
-      inapplicable: colorContrastResults.inapplicable.length,
-    });
-
-    // Log details of incomplete color contrast results
-    if (colorContrastResults.incomplete.length > 0) {
-      console.log('Incomplete color contrast results:');
-      colorContrastResults.incomplete.forEach((result: any, index: number) => {
-        console.log(`Incomplete ${index + 1}:`, result.description);
-        console.log('Element:', result.nodes[0]?.html);
-        console.log('Selector:', result.nodes[0]?.target?.[0]);
-        console.log('Reason:', result.nodes[0]?.any[0]?.message);
-      });
-    }
 
     // Merge violations and incomplete results together
     const allResults = [...axeResults.violations, ...axeResults.incomplete];
@@ -221,13 +228,6 @@ export const runPreviewScan = async (
       })
       // Only keep violations that still have at least one node
       .filter((violation) => violation.nodes.length > 0);
-
-    console.log(
-      'Filtered to',
-      filteredViolations.length,
-      'violations affecting our blocks',
-      filteredViolations
-    );
 
     // Map violations back to actual block clientIds based on data-wpav-block-id
     // Only include violations that can be mapped to actual editor blocks
@@ -290,16 +290,6 @@ export const runPreviewScan = async (
         ): violation is ViolationWithContext => violation !== null
       );
 
-    // Log all violations found (filtered)
-    console.log(
-      '=== PREVIEW PAGE ACCESSIBILITY VIOLATIONS (Block Content Only) ===',
-      violationsWithBlockIds
-    );
-
-    // Clean up
-    document.body.removeChild(iframe);
-    console.log('Preview scan completed successfully');
-
     // Return scan metrics (using mapped violations)
     return {
       totalBlocks: blockElements.length,
@@ -313,5 +303,9 @@ export const runPreviewScan = async (
       error instanceof Error ? error.message : 'Preview scan failed';
     console.error('Preview scan error:', error);
     throw new Error(`Preview scan failed: ${message}`);
+  } finally {
+    if (iframe && iframe.parentNode) {
+      iframe.parentNode.removeChild(iframe);
+    }
   }
 };
