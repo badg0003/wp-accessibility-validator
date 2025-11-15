@@ -11,13 +11,8 @@
 
 import { useState, useCallback } from '@wordpress/element';
 import type { ScanMetrics, StoredScan } from '../types';
-import {
-  runClientSideScan,
-  runPreviewScan,
-  announceNotice,
-  openResultsPanel,
-  savePostAndWait,
-} from '../utils';
+import { runPreviewScan, announceNotice, openResultsPanel } from '../utils';
+import { useCurrentBlocks } from './useCurrentBlocks';
 
 /**
  * Options for configuring the accessibility scan hook.
@@ -29,15 +24,11 @@ import {
  *                                       whether a stored scan is stale.
  * @property {Function} [persistScan]    Optional callback used to persist the
  *                                       completed scan metrics for later use.
- * @property {Function} getFreshPreviewUrl Function that returns a fresh
- *                                         preview URL for the current post,
- *                                         or null if one cannot be generated.
  */
 interface UseAccessibilityScanOptions {
   onScanComplete?: (results: ScanMetrics) => void;
   contentSnapshot: string;
   persistScan?: (scan: StoredScan) => void;
-  getFreshPreviewUrl: () => string | null;
 }
 
 /**
@@ -69,12 +60,12 @@ export const useAccessibilityScan = ({
   onScanComplete,
   contentSnapshot,
   persistScan,
-  getFreshPreviewUrl,
 }: UseAccessibilityScanOptions) => {
   const [isScanning, setIsScanning] = useState(false);
   const [scanSummary, setScanSummary] = useState<ScanMetrics | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [completedAt, setCompletedAt] = useState<Date | null>(null);
+  const blocks = useCurrentBlocks();
 
   const handleScanClick = useCallback(async () => {
     if (isScanning) {
@@ -89,16 +80,7 @@ export const useAccessibilityScan = ({
     });
 
     try {
-      await savePostAndWait();
-
-      const previewUrl = getFreshPreviewUrl();
-      if (!previewUrl) {
-        throw new Error('Could not generate a preview URL for this post.');
-      }
-
-	  console.info('Preview URL for accessibility scan:', previewUrl);
-
-      const results = await runPreviewScan(previewUrl);
+      const results = await runPreviewScan(blocks);
       setScanSummary(results);
       const completedDate = new Date();
       setCompletedAt(completedDate);
@@ -147,13 +129,7 @@ export const useAccessibilityScan = ({
     } finally {
       setIsScanning(false);
     }
-  }, [
-    contentSnapshot,
-    onScanComplete,
-    persistScan,
-    isScanning,
-    getFreshPreviewUrl,
-  ]);
+  }, [contentSnapshot, onScanComplete, persistScan, isScanning]);
 
   return {
     isScanning,
