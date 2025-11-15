@@ -312,6 +312,10 @@ class WP_Accessibility_Validator_Admin
 	/**
 	 * Adds stable block IDs to rendered block HTML for accessibility scanning.
 	 *
+	 * Uses the persisted wpavId block attribute, which is assigned in the editor
+	 * and stored with the block content. When present, the value is exposed as a
+	 * data-wpav-block-id attribute on the first HTML tag of the rendered block.
+	 *
 	 * @param string $block_content The block content.
 	 * @param array  $block         The block data.
 	 *
@@ -319,21 +323,26 @@ class WP_Accessibility_Validator_Admin
 	 */
 	public function add_block_stable_id($block_content, $block)
 	{
-		// If a scan render explicitly requested IDs, always inject.
-		if (self::$force_block_ids) {
-			$should_inject = true;
-		}
-
-		if (! $should_inject) {
+		// Only inject when the scan render explicitly requested IDs.
+		if (! self::$force_block_ids || ! $block_content || ! is_array($block)) {
 			return $block_content;
 		}
 
+		$attribute_name = 'wpavId';
+
+		if (empty($block['attrs'][$attribute_name])) {
+			return $block_content;
+		}
+
+		$block_id = sanitize_text_field($block['attrs'][$attribute_name]);
+
 		$processor = new WP_HTML_Tag_Processor($block_content);
 
-		if ($processor->next_tag()) {
-			$generatedId = substr(md5(trim($block['innerHTML'])), 0, 12);
-			$processor->set_attribute('data-wpav-block-id', $generatedId);
+		if (! $processor->next_tag()) {
+			return $block_content;
 		}
+
+		$processor->set_attribute('data-wpav-block-id', $block_id);
 
 		return $processor->get_updated_html();
 	}
@@ -393,7 +402,6 @@ class WP_Accessibility_Validator_Admin
 
 					return array(
 						'html' => $html,
-						'post' => $post,
 					);
 				},
 			)
