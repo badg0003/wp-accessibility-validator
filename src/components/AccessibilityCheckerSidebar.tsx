@@ -68,6 +68,16 @@ export const AccessibilityCheckerSidebar = () => {
     };
   }, []);
 
+  // Check if all blocks have a wpavId attribute
+  const allBlocksHaveIds = useMemo(() => {
+    const typedBlocks = blocks as WPBlock[];
+    if (!typedBlocks || typedBlocks.length === 0) {
+      return false;
+    }
+
+    return typedBlocks.every((block) => block.attributes?.wpavId);
+  }, [blocks]);
+
   // Editor readiness (post id, save state, etc.)
   const { postId, isReady: isEditorReady } = useEditorReady();
 
@@ -77,21 +87,11 @@ export const AccessibilityCheckerSidebar = () => {
   // Header button slot
   const headerSlot = useHeaderButtonSlot();
 
-  // Scan mode state - now always preview
-  const scanMode = 'preview';
-
   // Stored scan management
   const { storedScan, isScanStale, persistScan } = useStoredScan(
     postId,
     contentSnapshot
   );
-
-  // Preview URL with nonce
-  const {
-    getFreshPreviewUrl,
-    hasNonce,
-    isReady: isPreviewReady,
-  } = usePreviewUrlWithNonce();
 
   // Scan execution
   const {
@@ -105,7 +105,6 @@ export const AccessibilityCheckerSidebar = () => {
   } = useAccessibilityScan({
     contentSnapshot,
     persistScan,
-    getFreshPreviewUrl,
   });
 
   // Track whether we've auto-run the scan for this editor session/post
@@ -113,27 +112,24 @@ export const AccessibilityCheckerSidebar = () => {
 
   useEffect(() => {
     // Only auto-run when:
-    // - editor is ready
-    // - preview URL is ready
-    // - we haven't already auto-run
-    // (The actual fresh preview URL is resolved inside handleScanClick)
-    console.log('WPAV auto-run check', {
-      isEditorReady,
-      isPreviewReady,
-    });
-
-    if (!isEditorReady || !isPreviewReady) {
-      return;
-    }
-    if (hasAutoRunRef.current) {
+    // - the editor is ready
+    // - all blocks have a stable wpavId assigned
+    // - we haven't already auto-run for this session
+    if (!isEditorReady || hasAutoRunRef.current || !allBlocksHaveIds) {
       return;
     }
 
-    handleScanClick();
-    hasAutoRunRef.current = true;
-  }, [isEditorReady, isPreviewReady, handleScanClick]);
+    const timeoutId = window.setTimeout(() => {
+      handleScanClick();
+      hasAutoRunRef.current = true;
+    }, 250);
 
-  const scanDisabled = isScanning || !isEditorReady || !isPreviewReady;
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [isEditorReady, allBlocksHaveIds, handleScanClick]);
+
+  const scanDisabled = isScanning || !isEditorReady || !allBlocksHaveIds;
 
   // Load stored scan on mount
   useMemo(() => {
@@ -202,10 +198,10 @@ export const AccessibilityCheckerSidebar = () => {
             </Notice>
           )}
 
-          {isEditorReady && !isPreviewReady && (
+          {isEditorReady && !allBlocksHaveIds && (
             <Notice status="info" isDismissible={false}>
-              Generating preview link&hellip; run the scan once the preview is
-              ready.
+              Initializing accessibility checker&hellip; results will be
+              available shortly.
             </Notice>
           )}
 
