@@ -15,7 +15,7 @@ import type {
   ScanMetrics,
   ViolationWithContext,
   WPBlock,
-  WPBlockEditorStore,
+  RenderResponse,
 } from '../types';
 import { getConfiguredWcagTags } from './wcag';
 import {
@@ -23,66 +23,7 @@ import {
   buildScanDocumentHtml,
   waitForIframeLoad,
 } from './previewDom';
-import { md5 } from 'js-md5';
 import apiFetch from '@wordpress/api-fetch';
-
-type RenderResponse = {
-  html: string;
-};
-
-/**
- * Shape of the axe-core result object we care about.
- *
- * We intentionally keep this loose (`any`-based) to avoid pulling in
- * the full axe-core type surface, while still documenting the structure
- * this module expects.
- */
-type AxeResult = {
-  violations: any[];
-  incomplete: any[];
-};
-
-/**
- * Generates a stable ID for a block that can be used to correlate blocks
- * between the editor and rendered preview.
- *
- * The returned value is the first 12 characters of an MD5 hash of the
- * block's original content, and is expected to match the server-side
- * ID used in the `data-wpav-block-id` attribute.
- *
- * @since 1.0.0
- *
- * @param {WPBlock} block The WordPress block.
- * @return {string} A stable identifier for the block.
- */
-const generateBlockStableId = (block: WPBlock): string => {
-  return md5(block.originalContent).substring(0, 12);
-};
-
-/**
- * Recursively flattens a tree of blocks into a single array of blocks.
- *
- * This allows violations to be mapped back to any nested inner block,
- * not just top-level blocks in the editor.
- *
- * @since 1.0.0
- *
- * @param {WPBlock[]} blocksToFlatten Blocks to flatten.
- * @return {WPBlock[]} All blocks, including nested inner blocks.
- */
-const flattenBlocks = (blocksToFlatten: WPBlock[]): WPBlock[] => {
-  const all: WPBlock[] = [];
-
-  for (const block of blocksToFlatten) {
-    all.push(block);
-
-    if (Array.isArray((block as any).innerBlocks) && block.innerBlocks.length) {
-      all.push(...flattenBlocks(block.innerBlocks as WPBlock[]));
-    }
-  }
-
-  return all;
-};
 
 /**
  * Injects axe-core into the iframe and resolves when it is available.
@@ -128,7 +69,7 @@ export const runClientSideScan = async (): Promise<ScanMetrics> => {
  *
  * @since 1.0.0
  *
- * @param {string} previewUrl The URL of the preview page to scan.
+ * @param {WPBlock[]} blocks The blocks to scan.
  * @return {Promise<ScanMetrics>} A promise that resolves with scan metrics.
  *
  * @throws {Error} If the preview cannot be loaded, the iframe cannot be
@@ -136,7 +77,7 @@ export const runClientSideScan = async (): Promise<ScanMetrics> => {
  *                 scan process encounters an unexpected error.
  */
 export const runPreviewScan = async (
-  previewUrl: string
+  blocks: WPBlock[]
 ): Promise<ScanMetrics> => {
   if (typeof document === 'undefined') {
     throw new Error('Preview scanning is only available in a browser context.');
@@ -144,11 +85,6 @@ export const runPreviewScan = async (
 
   const { themeStylesheetUrl, globalStylesCss } =
     (window as any).wpavSettings || {};
-
-  const blockStore = select('core/block-editor') as Partial<WPBlockEditorStore>;
-  const rootBlocks = blockStore?.getBlocks?.() ?? [];
-
-  const blocks = flattenBlocks(rootBlocks);
 
   const editorStore = select('core/editor') as any;
   const postId = editorStore?.getCurrentPostId?.();
@@ -175,11 +111,11 @@ export const runPreviewScan = async (
     let response: RenderResponse;
 
     try {
-      response = (await apiFetch({
+      response = await apiFetch({
         path: `/wp-accessibility-validator/v1/render/${postId}`,
         method: 'POST',
         data: { content },
-      })) as RenderResponse;
+      });
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('A11y render request failed', error);
@@ -249,17 +185,14 @@ export const runPreviewScan = async (
       throw new Error('Failed to load axe-core in iframe');
     }
 
-    const axeResults = (await iframeAxe.run(
-      iframeDoc,
-      runOptions
-    )) as AxeResult;
+    const axeResults = await iframeAxe.run(iframeDoc, runOptions);
 
     // Merge violations and incomplete results together
     const allResults = [...axeResults.violations, ...axeResults.incomplete];
 
     // Debug: full set of raw axe results before filtering.
     // eslint-disable-next-line no-console
-    console.log('WPAV axe raw results:', allResults);
+    // console.log('WPAV axe raw results:', allResults);
 
     const filteredViolations = allResults
       .map((violation: any) => {
@@ -370,7 +303,7 @@ export const runPreviewScan = async (
           }
 
           const matchingBlock = blocks.find(
-            (block: WPBlock) => generateBlockStableId(block) === blockId
+            (block: WPBlock) => block.attributes?.wpavId === blockId
           );
 
           if (!matchingBlock) {

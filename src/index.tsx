@@ -6,6 +6,8 @@
  */
 
 import { registerPlugin } from '@wordpress/plugins';
+import { createElement, Fragment } from '@wordpress/element';
+
 import './style.scss';
 
 // Initialize the violation store
@@ -13,28 +15,32 @@ import { registerViolationStore } from './stores';
 
 // Apply block filters for visual indicators
 import {
-	applyBlockViolationIndicator,
-	applyBlockToolbarIndicator,
+  applyBlockViolationIndicator,
+  applyBlockToolbarIndicator,
+  AccessibilityCheckerSidebar,
+  BlockStableIdProvider,
 } from './components';
-
-// Main sidebar component
-import { AccessibilityCheckerSidebar } from './components';
 
 /**
  * Initialize the plugin.
  */
 const initializePlugin = (): void => {
-	// Register the violation tracking store
-	registerViolationStore();
+  // Register the violation tracking store
+  registerViolationStore();
 
-	// Apply block editor filters
-	applyBlockViolationIndicator();
-	applyBlockToolbarIndicator();
+  // Apply block editor filters
+  applyBlockViolationIndicator();
+  applyBlockToolbarIndicator();
 
-	// Register the main plugin component
-	registerPlugin('wp-accessibility-validator', {
-		render: AccessibilityCheckerSidebar,
-	});
+  // Register the main plugin component
+  registerPlugin('wp-accessibility-validator', {
+    render: () => (
+      <Fragment>
+        <BlockStableIdProvider />
+        <AccessibilityCheckerSidebar />
+      </Fragment>
+    ),
+  });
 };
 
 // Initialize when the module loads
